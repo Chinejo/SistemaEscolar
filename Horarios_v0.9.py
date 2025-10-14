@@ -22,11 +22,14 @@ def aplicar_estilos_ttk():
 	style.map('Treeview', foreground=[('selected', '#222')])
 # MODELOS Y LOGICA DE DATOS PARA GESTION DE HORARIOS ESCOLARES
 import sqlite3
+import os
 from typing import List, Optional, Dict, Any
 
 
 # Inicialización de la base de datos
-DB_NAME = 'horarios.db'
+# Usar ruta absoluta basada en la ubicación del script
+DB_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_NAME = os.path.join(DB_DIR, 'horarios.db')
 
 def get_connection():
 	return sqlite3.connect(DB_NAME)
@@ -172,11 +175,19 @@ def init_db():
 		hora_fin TEXT,
 		materia_id INTEGER,
 		profesor_id INTEGER,
+		turno_id INTEGER,
 		FOREIGN KEY(division_id) REFERENCES division(id),
 		FOREIGN KEY(materia_id) REFERENCES materia(id),
 		FOREIGN KEY(profesor_id) REFERENCES profesor(id),
+		FOREIGN KEY(turno_id) REFERENCES turno(id),
 		UNIQUE(division_id, dia, espacio)
 	)''')
+	
+	# Agregar columna turno_id a registros existentes si no existe
+	try:
+		c.execute('ALTER TABLE horario ADD COLUMN turno_id INTEGER REFERENCES turno(id)')
+	except sqlite3.OperationalError:
+		pass  # La columna ya existe
 	# Horas por espacio/turno (valores por defecto para cada turno y espacio)
 	c.execute('''CREATE TABLE IF NOT EXISTS turno_espacio_hora (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -452,26 +463,49 @@ def quitar_plan_de_turno(turno_id: int, plan_id: int):
 	conn.commit()
 	conn.close()
 
-def obtener_planes_de_turno(turno_id):
-    conn = get_connection()
-    c = conn.cursor()
-    c.execute('''SELECT p.id, p.nombre FROM plan_estudio p
-                 JOIN turno_plan tp ON tp.plan_id = p.id
-                 WHERE tp.turno_id = ?''', (turno_id,))
-    planes = [{'id': row[0], 'nombre': row[1]} for row in c.fetchall()]
-    conn.close()
-    return planes
-
 def obtener_planes_de_turno(turno_id: int) -> list:
+	"""Obtiene los planes de estudio asociados a un turno (sin duplicados)"""
 	conn = get_connection()
 	c = conn.cursor()
-	c.execute('''SELECT p.id, p.nombre FROM plan_materia pm
-				 JOIN plan_estudio p ON pm.plan_id = p.id
+	c.execute('''SELECT DISTINCT p.id, p.nombre FROM plan_estudio p
 				 JOIN turno_plan tp ON tp.plan_id = p.id
-				 WHERE tp.turno_id=?''', (turno_id,))
+				 WHERE tp.turno_id = ?''', (turno_id,))
 	rows = c.fetchall()
 	conn.close()
 	return [{'id': r[0], 'nombre': r[1]} for r in rows]
+
+# Función helper para autocompletar comboboxes con una sola opción
+def autocompletar_combobox(combobox, valores, incluir_vacio=True):
+	"""
+	Configura un combobox con los valores dados y lo autocompleta si solo hay una opción.
+	
+	Args:
+		combobox: El widget ttk.Combobox a configurar
+		valores: Lista de valores para el combobox
+		incluir_vacio: Si True, incluye una opción vacía al inicio
+	
+	Returns:
+		bool: True si se autocompletó, False si no
+	"""
+	if incluir_vacio:
+		combobox['values'] = [''] + valores
+	else:
+		combobox['values'] = valores
+	
+	# Si solo hay una opción (sin contar la vacía), autocompletar
+	if len(valores) == 1:
+		combobox.set(valores[0])
+		combobox.config(state='readonly')
+		return True
+	elif len(valores) > 1:
+		if not incluir_vacio:
+			combobox.set('')
+		combobox.config(state='readonly')
+		return False
+	else:
+		combobox.set('')
+		combobox.config(state='disabled')
+		return False
 
 # CRUD División
 def crear_division(nombre: str):
@@ -501,16 +535,17 @@ def eliminar_division(id_: int):
 	conn.close()
 
 # CRUD Horario
-def crear_horario(division_id: int, dia: str, espacio: int, hora_inicio: str, hora_fin: str, materia_id: int, profesor_id: int):
+def crear_horario(division_id: int, dia: str, espacio: int, hora_inicio: str, hora_fin: str, materia_id: int, profesor_id: int, turno_id: int = None):
 	conn = get_connection()
 	c = conn.cursor()
-	# Obtener el turno de la división actual
-	c.execute('SELECT turno_id FROM division WHERE id=?', (division_id,))
-	row = c.fetchone()
-	if not row:
-		conn.close()
-		raise Exception('División no encontrada.')
-	turno_id = row[0]
+	# Obtener el turno de la división actual si no se proporciona
+	if turno_id is None:
+		c.execute('SELECT turno_id FROM division WHERE id=?', (division_id,))
+		row = c.fetchone()
+		if not row:
+			conn.close()
+			raise Exception('División no encontrada.')
+		turno_id = row[0]
 
 	# Si se proporcionó profesor, validar superposición solo entonces
 	if profesor_id is not None:
@@ -534,8 +569,8 @@ def crear_horario(division_id: int, dia: str, espacio: int, hora_inicio: str, ho
 	hora_inicio_db = hora_inicio if hora_inicio else None
 	hora_fin_db = hora_fin if hora_fin else None
 
-	c.execute('''INSERT INTO horario (division_id, dia, espacio, hora_inicio, hora_fin, materia_id, profesor_id) VALUES (?, ?, ?, ?, ?, ?, ?)''',
-			  (division_id, dia, espacio, hora_inicio_db, hora_fin_db, materia_id, profesor_id))
+	c.execute('''INSERT INTO horario (division_id, dia, espacio, hora_inicio, hora_fin, materia_id, profesor_id, turno_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+			  (division_id, dia, espacio, hora_inicio_db, hora_fin_db, materia_id, profesor_id, turno_id))
 
 	# Sumar horas a materia y banca de profesor
 	# Sumar horas a materia y banca de profesor si corresponde
@@ -604,6 +639,91 @@ def eliminar_turno_espacio_hora(turno_id: int, espacio: int):
 	conn.commit()
 	conn.close()
 
+# CRUD Horario por Profesor (usa la misma tabla 'horario' que la vista por curso)
+def crear_horario_profesor(profesor_id: int, turno_id: int, dia: str, espacio: int, hora_inicio: str, hora_fin: str, division_id: int = None, materia_id: int = None):
+	"""
+	Crea un horario para un profesor. Si division_id se proporciona, valida que pertenezca al turno.
+	Los datos se guardan en la tabla 'horario' para que se sincronicen con la vista por curso.
+	"""
+	conn = get_connection()
+	c = conn.cursor()
+	
+	# Validar que el profesor esté asignado al turno
+	c.execute('SELECT 1 FROM profesor_turno WHERE profesor_id=? AND turno_id=?', (profesor_id, turno_id))
+	if not c.fetchone():
+		conn.close()
+		raise Exception('El profesor no está asignado a este turno.')
+	
+	# Validar que el profesor tenga la materia asignada solo si ambos están presentes
+	if materia_id is not None and profesor_id is not None:
+		c.execute('SELECT 1 FROM profesor_materia WHERE profesor_id=? AND materia_id=?', (profesor_id, materia_id))
+		if not c.fetchone():
+			conn.close()
+			raise Exception('El profesor no tiene asignada esta materia.')
+	
+	# Si se especifica división, validar que pertenezca al turno
+	if division_id is not None:
+		c.execute('SELECT turno_id FROM division WHERE id=?', (division_id,))
+		row = c.fetchone()
+		if not row:
+			conn.close()
+			raise Exception('División no encontrada.')
+		if row[0] != turno_id:
+			conn.close()
+			raise Exception('La división no pertenece al turno seleccionado.')
+		
+		# Si hay división, validar que no exista ya un horario para esa división en ese día/espacio
+		c.execute('''SELECT 1 FROM horario 
+					 WHERE division_id=? AND dia=? AND espacio=?''', 
+				  (division_id, dia, espacio))
+		if c.fetchone():
+			conn.close()
+			raise Exception('Ya existe un horario asignado para esta división en este día y espacio.')
+	
+	# Validar que no haya superposición en el horario del profesor (mismo turno, día y espacio)
+	c.execute('''SELECT 1 FROM horario 
+				 WHERE profesor_id=? AND turno_id=? AND dia=? AND espacio=?''', 
+			  (profesor_id, turno_id, dia, espacio))
+	if c.fetchone():
+		conn.close()
+		raise Exception('El profesor ya tiene un horario asignado en este día y espacio en este turno.')
+	
+	# Permitir hora_inicio/hora_fin vacías (NULL)
+	hora_inicio_db = hora_inicio if hora_inicio else None
+	hora_fin_db = hora_fin if hora_fin else None
+	
+	c.execute('''INSERT INTO horario (division_id, dia, espacio, hora_inicio, hora_fin, materia_id, profesor_id, turno_id) 
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+			  (division_id, dia, espacio, hora_inicio_db, hora_fin_db, materia_id, profesor_id, turno_id))
+	
+	conn.commit()
+	conn.close()
+
+def obtener_horarios_profesor(profesor_id: int, turno_id: int) -> List[Dict[str, Any]]:
+	"""
+	Obtiene todos los horarios de un profesor en un turno específico.
+	Lee de la tabla 'horario', por lo que incluye asignaciones hechas desde cualquier vista.
+	"""
+	conn = get_connection()
+	c = conn.cursor()
+	c.execute('''SELECT h.id, h.dia, h.espacio, h.hora_inicio, h.hora_fin, 
+				 m.nombre as materia, d.nombre as division
+				 FROM horario h
+				 LEFT JOIN materia m ON h.materia_id = m.id
+				 LEFT JOIN division d ON h.division_id = d.id
+				 WHERE h.profesor_id=? AND h.turno_id=?''', (profesor_id, turno_id))
+	rows = c.fetchall()
+	conn.close()
+	return [{'id': r[0], 'dia': r[1], 'espacio': r[2], 'hora_inicio': r[3], 'hora_fin': r[4], 'materia': r[5], 'division': r[6]} for r in rows]
+
+def eliminar_horario_profesor(id_: int):
+	"""
+	Elimina un horario por su ID. Como usa la tabla 'horario', 
+	el cambio se refleja automáticamente en ambas vistas.
+	"""
+	# Usamos la misma función eliminar_horario que ya existe
+	eliminar_horario(id_)
+
 # Inicializar la base de datos al importar el módulo
 init_db()
 
@@ -661,13 +781,14 @@ class App(tk.Tk):
 		profesores_menu.add_command(label='Gestionar Profesores', command=self.mostrar_profesores)
 		menubar.add_cascade(label='Profesores', menu=profesores_menu)
 
-		divisiones_menu = tk.Menu(menubar, tearoff=0)
-		divisiones_menu.add_command(label='Gestionar Divisiones', command=self.mostrar_divisiones)
-		menubar.add_cascade(label='Divisiones', menu=divisiones_menu)
+		cursos_menu = tk.Menu(menubar, tearoff=0)
+		cursos_menu.add_command(label='Gestionar Cursos', command=self.mostrar_divisiones)
+		menubar.add_cascade(label='Cursos', menu=cursos_menu)
 
 		horarios_menu = tk.Menu(menubar, tearoff=0)
-		horarios_menu.add_command(label='Gestionar Horarios', command=self.mostrar_horarios)
-		menubar.add_cascade(label='Horarios', menu=horarios_menu)
+		horarios_menu.add_command(label='Por curso', command=self.mostrar_horarios_curso)
+		horarios_menu.add_command(label='Por profesor', command=self.mostrar_horarios_profesor)
+		menubar.add_cascade(label='Gestión de horarios', menu=horarios_menu)
 
 	def _crear_frame_principal(self):
 		self.frame_principal = ttk.Frame(self)
@@ -1024,7 +1145,7 @@ class App(tk.Tk):
 
 	def mostrar_divisiones(self):
 		self.limpiar_frame()
-		ttk.Label(self.frame_principal, text='Gestión de Divisiones', font=('Arial', 14)).pack(pady=10)
+		ttk.Label(self.frame_principal, text='Gestión de Cursos', font=('Arial', 14)).pack(pady=10)
 
 		# Totales
 		divisiones = obtener_divisiones()
@@ -1226,9 +1347,9 @@ class App(tk.Tk):
 			anio = next((a['nombre'] for a in obtener_anios(c['plan_id']) if a['id'] == c['anio_id']), '')
 			self.cb_anio_division.set(anio)
 
-	def mostrar_horarios(self):
+	def mostrar_horarios_curso(self):
 		self.limpiar_frame()
-		ttk.Label(self.frame_principal, text='Gestión de Horarios', font=('Arial', 14)).pack(pady=10)
+		ttk.Label(self.frame_principal, text='Gestión de Horarios por Curso', font=('Arial', 14)).pack(pady=10)
 
 		# Selección paso a paso: Turno → Plan → Año → División
 		frame_sel = ttk.Frame(self.frame_principal)
@@ -1238,6 +1359,8 @@ class App(tk.Tk):
 		self.turnos_dict_horario = {t['nombre']: t['id'] for t in turnos}
 		self.cb_turno_horario = ttk.Combobox(frame_sel, values=list(self.turnos_dict_horario.keys()), state='readonly')
 		self.cb_turno_horario.grid(row=0, column=1, padx=5)
+		# Autocompletar turno si solo hay uno
+		turno_autocompletado = autocompletar_combobox(self.cb_turno_horario, list(self.turnos_dict_horario.keys()), incluir_vacio=False)
 		ttk.Label(frame_sel, text='Plan:').grid(row=0, column=2, padx=5)
 		self.cb_plan_horario = ttk.Combobox(frame_sel, values=[], state='disabled')
 		self.cb_plan_horario.grid(row=0, column=3, padx=5)
@@ -1264,9 +1387,10 @@ class App(tk.Tk):
 			turno_id = self.turnos_dict_horario[turno_nombre]
 			planes = obtener_planes_de_turno(turno_id)
 			self.planes_dict_horario = {p['nombre']: p['id'] for p in planes}
-			self.cb_plan_horario['values'] = list(self.planes_dict_horario.keys())
-			self.cb_plan_horario.set('')
-			self.cb_plan_horario.config(state='readonly' if planes else 'disabled')
+			plan_nombres = list(self.planes_dict_horario.keys())
+			# Autocompletar plan si solo hay uno
+			if autocompletar_combobox(self.cb_plan_horario, plan_nombres, incluir_vacio=False):
+				on_plan_selected()  # Trigger automático
 			self.cb_anio_horario['values'] = []
 			self.cb_anio_horario.set('')
 			self.cb_anio_horario.config(state='disabled')
@@ -1286,9 +1410,10 @@ class App(tk.Tk):
 			plan_id = self.planes_dict_horario[plan_nombre]
 			anios = obtener_anios(plan_id)
 			self.anios_dict_horario = {a['nombre']: a['id'] for a in anios}
-			self.cb_anio_horario['values'] = list(self.anios_dict_horario.keys())
-			self.cb_anio_horario.set('')
-			self.cb_anio_horario.config(state='readonly' if anios else 'disabled')
+			anio_nombres = list(self.anios_dict_horario.keys())
+			# Autocompletar año si solo hay uno
+			if autocompletar_combobox(self.cb_anio_horario, anio_nombres, incluir_vacio=False):
+				on_anio_selected()  # Trigger automático
 			self.cb_division_horario['values'] = []
 			self.cb_division_horario.set('')
 			self.cb_division_horario.config(state='disabled')
@@ -1312,15 +1437,20 @@ class App(tk.Tk):
 			plan_id = self.planes_dict_horario[plan_nombre]
 			divisiones = [c for c in obtener_divisiones() if c['turno_id'] == turno_id and c['plan_id'] == plan_id and c['anio_id'] == anio_id]
 			self.divisiones_dict_horario = {c['nombre']: c['id'] for c in divisiones}
-			self.cb_division_horario['values'] = list(self.divisiones_dict_horario.keys())
-			self.cb_division_horario.set('')
-			self.cb_division_horario.config(state='readonly' if divisiones else 'disabled')
+			division_nombres = list(self.divisiones_dict_horario.keys())
+			# Autocompletar división si solo hay una
+			if autocompletar_combobox(self.cb_division_horario, division_nombres, incluir_vacio=False):
+				on_division_selected()  # Trigger automático
 		def on_division_selected(event=None):
-			self._dibujar_grilla_horario()
+			self._dibujar_grilla_horario_curso()
 		self.cb_turno_horario.bind('<<ComboboxSelected>>', on_turno_selected)
 		self.cb_plan_horario.bind('<<ComboboxSelected>>', on_plan_selected)
 		self.cb_anio_horario.bind('<<ComboboxSelected>>', on_anio_selected)
 		self.cb_division_horario.bind('<<ComboboxSelected>>', on_division_selected)
+		
+		# Si el turno se autocompletó, trigger inicial
+		if turno_autocompletado:
+			on_turno_selected()
 
 		self.espacios_por_dia = 8
 		
@@ -1370,7 +1500,7 @@ class App(tk.Tk):
 		frame_bottom_btns.pack(pady=6)
 		ttk.Button(frame_bottom_btns, text='Configurar horas por turno', command=self._configurar_horas_por_turno).pack()
 
-	def _dibujar_grilla_horario(self):
+	def _dibujar_grilla_horario_curso(self):
 		for widget in self.frame_grilla_horario.winfo_children():
 			widget.destroy()
 		division_nombre = getattr(self, 'cb_division_horario', None)
@@ -1409,7 +1539,7 @@ class App(tk.Tk):
 					texto = f"{h['materia'] or ''}\n{h['profesor'] or ''}\n{h['hora_inicio'] or ''}-{h['hora_fin'] or ''}"
 				btn = tk.Button(self.frame_grilla_horario, text=texto, wraplength=100, anchor='w', justify='left',
 								bg='#ffffff', relief='ridge', bd=1,
-								command=lambda d=dia, e=esp: self._editar_espacio_horario(d, e))
+								command=lambda d=dia, e=esp: self._editar_espacio_horario_curso(d, e))
 				btn.grid(row=esp, column=col, padx=1, pady=1, sticky='nsew')
 				fila_botones.append(btn)
 			self._grilla_botones.append(fila_botones)
@@ -1434,7 +1564,7 @@ class App(tk.Tk):
 			self.canvas_horario.yview_moveto(0)  # Resetear scroll a la parte superior
 		self.after(150, actualizar_scroll)
 
-	def _editar_espacio_horario(self, dia, espacio):
+	def _editar_espacio_horario_curso(self, dia, espacio):
 		division_nombre = getattr(self, 'cb_division_horario', None)
 		if not division_nombre or not self.cb_division_horario.get():
 			return
@@ -1443,12 +1573,11 @@ class App(tk.Tk):
 		win.configure(bg='#f4f6fa')
 		sufijo = 'ª'
 		win.title(f'{dia} - {espacio}{sufijo} hora')
-		win.geometry('450x450')
-		win.minsize(400, 400)
+		win.geometry('330x270')
+		win.resizable(False, False)
 		win.transient(self)
 		win.grab_set()
 		win.focus_force()
-		win.configure(bg='#f4f6fa')
 		ttk.Label(win, text=f'{dia} - {espacio}{sufijo} hora', font=('Segoe UI', 13, 'bold'), background='#e0e7ef', foreground='#2a3a4a').pack(pady=10, fill='x')
 
 		# Horario
@@ -1485,6 +1614,8 @@ class App(tk.Tk):
 			filtered = [m for m in materia_nombres if typed in m.lower()]
 			cb_materia['values'] = filtered if filtered else materia_nombres
 		cb_materia.bind('<KeyRelease>', materia_autofilter)
+		# Autocompletar si solo hay una materia
+		autocompletar_combobox(cb_materia, materia_nombres, incluir_vacio=False)
 
 		# Profesor
 		ttk.Label(form, text='Profesor:', background='#f4f6fa').grid(row=3, column=0, padx=5, pady=4, sticky='e')
@@ -1513,9 +1644,8 @@ class App(tk.Tk):
 					nonlocal profesor_ids
 					profesor_ids = {row[0]: row[1] for row in rows}
 					conn.close()
-					cb_profesor['values'] = nombres_profesores
-					cb_profesor.set('')
-					cb_profesor.config(state='readonly' if nombres_profesores else 'disabled')
+					# Autocompletar si solo hay un profesor
+					autocompletar_combobox(cb_profesor, nombres_profesores, incluir_vacio=True)
 				else:
 					cb_profesor['values'] = []
 					cb_profesor.set('')
@@ -1584,13 +1714,18 @@ class App(tk.Tk):
 					eliminar_horario(h_existente['id'])
 				mid = materia_ids.get(materia) if materia else None
 				pid = profesor_ids.get(profesor) if profesor else None
-				crear_horario(division_id, dia, espacio, hora_inicio, hora_fin, mid, pid)
-				self._dibujar_grilla_horario()
+				# Obtener turno_id de la división
+				turno_nombre = self.cb_turno_horario.get()
+				turno_id = self.turnos_dict_horario[turno_nombre]
+				crear_horario(division_id, dia, espacio, hora_inicio, hora_fin, mid, pid, turno_id)
+				self._dibujar_grilla_horario_curso()
 				win.destroy()
 			except Exception as e:
 				if datos_previos:
 					try:
-						crear_horario(division_id, dia, espacio, datos_previos['hora_inicio'], datos_previos['hora_fin'], datos_previos['materia_id'], datos_previos['profesor_id'])
+						turno_nombre = self.cb_turno_horario.get()
+						turno_id = self.turnos_dict_horario[turno_nombre]
+						crear_horario(division_id, dia, espacio, datos_previos['hora_inicio'], datos_previos['hora_fin'], datos_previos['materia_id'], datos_previos['profesor_id'], turno_id)
 					except Exception:
 						pass
 				msg = str(e)
@@ -1604,7 +1739,421 @@ class App(tk.Tk):
 				if messagebox.askyesno('Confirmar', '¿Eliminar asignación de este espacio?'):
 					try:
 						eliminar_horario(h_existente['id'])
-						self._dibujar_grilla_horario()
+						self._dibujar_grilla_horario_curso()
+						win.destroy()
+					except Exception as e:
+						messagebox.showerror('Error', str(e))
+			else:
+				win.destroy()
+
+		btns = ttk.Frame(win)
+		btns.pack(pady=15)
+		btn_guardar = ttk.Button(btns, text='Guardar', command=guardar)
+		btn_guardar.grid(row=0, column=0, padx=8)
+		btn_eliminar = ttk.Button(btns, text='Eliminar', command=eliminar_espacio)
+		btn_eliminar.grid(row=0, column=1, padx=8)
+		btn_guardar.bind('<Return>', guardar)
+		btn_eliminar.bind('<Return>', eliminar_espacio)
+		entry_inicio.focus_set()
+
+	# ============== VISTA DE HORARIOS POR PROFESOR ==============
+	
+	def mostrar_horarios_profesor(self):
+		self.limpiar_frame()
+		ttk.Label(self.frame_principal, text='Gestión de Horarios por Profesor', font=('Arial', 14)).pack(pady=10)
+
+		# Selección paso a paso: Turno → Profesor
+		frame_sel = ttk.Frame(self.frame_principal)
+		frame_sel.pack(pady=5)
+		ttk.Label(frame_sel, text='Turno:').grid(row=0, column=0, padx=5)
+		turnos = obtener_turnos()
+		self.turnos_dict_horario_prof = {t['nombre']: t['id'] for t in turnos}
+		self.cb_turno_horario_prof = ttk.Combobox(frame_sel, values=list(self.turnos_dict_horario_prof.keys()), state='readonly')
+		self.cb_turno_horario_prof.grid(row=0, column=1, padx=5)
+		ttk.Label(frame_sel, text='Profesor:').grid(row=0, column=2, padx=5)
+		self.cb_profesor_horario = ttk.Combobox(frame_sel, values=[], state='disabled')
+		self.cb_profesor_horario.grid(row=0, column=3, padx=5)
+		
+		# Autocompletar turno si solo hay uno
+		turno_autocompletado_prof = autocompletar_combobox(self.cb_turno_horario_prof, list(self.turnos_dict_horario_prof.keys()), incluir_vacio=False)
+
+		# Lista completa de profesores para filtrado
+		self.profesores_lista_completa = []
+
+		def on_turno_selected_prof(event=None):
+			turno_nombre = self.cb_turno_horario_prof.get()
+			if not turno_nombre:
+				self.cb_profesor_horario['values'] = []
+				self.cb_profesor_horario.set('')
+				self.cb_profesor_horario.config(state='disabled')
+				self.profesores_lista_completa = []
+				return
+			turno_id = self.turnos_dict_horario_prof[turno_nombre]
+			profesores = obtener_profesores_por_turno(turno_id)
+			# Ordenar alfabéticamente
+			profesores_ordenados = sorted(profesores, key=lambda p: p['nombre'].lower())
+			self.profesores_dict_horario = {p['nombre']: p['id'] for p in profesores_ordenados}
+			self.profesores_lista_completa = list(self.profesores_dict_horario.keys())
+			# Autocompletar profesor si solo hay uno
+			if autocompletar_combobox(self.cb_profesor_horario, self.profesores_lista_completa, incluir_vacio=False):
+				# Si hay un solo profesor y se autocompletó, cambiar a 'normal' para permitir filtrado
+				self.cb_profesor_horario.config(state='normal')
+				on_profesor_selected()  # Trigger automático
+			else:
+				self.cb_profesor_horario.config(state='normal' if profesores else 'disabled')
+
+		def on_profesor_selected(event=None):
+			# Solo dibujar si el profesor está en la lista válida
+			nombre = self.cb_profesor_horario.get()
+			if nombre in self.profesores_dict_horario:
+				self._dibujar_grilla_horario_profesor()
+
+		def filtrar_profesor(event=None):
+			# Filtrar profesores mientras se tipea
+			typed = self.cb_profesor_horario.get().lower()
+			if typed == '':
+				self.cb_profesor_horario['values'] = self.profesores_lista_completa
+			else:
+				filtered = [p for p in self.profesores_lista_completa if typed in p.lower()]
+				self.cb_profesor_horario['values'] = filtered if filtered else self.profesores_lista_completa
+			# Desplegar lista automáticamente
+			self.cb_profesor_horario.event_generate('<Down>')
+
+		self.cb_turno_horario_prof.bind('<<ComboboxSelected>>', on_turno_selected_prof)
+		self.cb_profesor_horario.bind('<<ComboboxSelected>>', on_profesor_selected)
+		self.cb_profesor_horario.bind('<KeyRelease>', filtrar_profesor)
+		
+		# Si el turno se autocompletó, trigger inicial
+		if turno_autocompletado_prof:
+			on_turno_selected_prof()
+
+		self.espacios_por_dia_prof = 8
+		
+		# Frame contenedor con Canvas y Scrollbar para la grilla de horarios
+		container_grilla = ttk.Frame(self.frame_principal)
+		container_grilla.pack(pady=10, expand=True, fill='both')
+		
+		# Canvas con scrollbar
+		self.canvas_horario_prof = tk.Canvas(container_grilla, bg='#f4f6fa', highlightthickness=0)
+		scrollbar_horario_prof = ttk.Scrollbar(container_grilla, orient='vertical', command=self.canvas_horario_prof.yview)
+		self.canvas_horario_prof.configure(yscrollcommand=scrollbar_horario_prof.set)
+		
+		scrollbar_horario_prof.pack(side='right', fill='y')
+		self.canvas_horario_prof.pack(side='left', fill='both', expand=True)
+		
+		# Frame dentro del canvas para la grilla
+		self.frame_grilla_horario_prof = ttk.Frame(self.canvas_horario_prof)
+		self.canvas_window_prof = self.canvas_horario_prof.create_window((0, 0), window=self.frame_grilla_horario_prof, anchor='nw')
+		
+		# Actualizar scroll region cuando cambie el tamaño del frame
+		def actualizar_scroll_region_prof(event=None):
+			self.canvas_horario_prof.update_idletasks()
+			self.canvas_horario_prof.configure(scrollregion=(0, 0, self.frame_grilla_horario_prof.winfo_reqwidth(), self.frame_grilla_horario_prof.winfo_reqheight()))
+		self.frame_grilla_horario_prof.bind('<Configure>', actualizar_scroll_region_prof)
+		
+		# Ajustar el ancho del frame al canvas
+		def ajustar_ancho_canvas_prof(event):
+			canvas_width = event.width
+			self.canvas_horario_prof.itemconfig(self.canvas_window_prof, width=canvas_width)
+		self.canvas_horario_prof.bind('<Configure>', ajustar_ancho_canvas_prof)
+		
+		# Permitir scroll con la rueda del mouse
+		def on_mousewheel_prof(event):
+			self.canvas_horario_prof.yview_scroll(int(-1*(event.delta/120)), "units")
+		
+		def bind_mousewheel_prof(event):
+			self.canvas_horario_prof.bind_all("<MouseWheel>", on_mousewheel_prof)
+		
+		def unbind_mousewheel_prof(event):
+			self.canvas_horario_prof.unbind_all("<MouseWheel>")
+		
+		self.canvas_horario_prof.bind('<Enter>', bind_mousewheel_prof)
+		self.canvas_horario_prof.bind('<Leave>', unbind_mousewheel_prof)
+
+		# Botón para configurar horas por turno en la parte baja (siempre visible)
+		frame_bottom_btns = ttk.Frame(self.frame_principal)
+		frame_bottom_btns.pack(pady=6)
+		ttk.Button(frame_bottom_btns, text='Configurar horas por turno', command=self._configurar_horas_por_turno).pack()
+
+	def _dibujar_grilla_horario_profesor(self):
+		for widget in self.frame_grilla_horario_prof.winfo_children():
+			widget.destroy()
+		profesor_nombre = getattr(self, 'cb_profesor_horario', None)
+		if not profesor_nombre or not self.cb_profesor_horario.get():
+			return
+		turno_nombre = self.cb_turno_horario_prof.get()
+		if not turno_nombre:
+			return
+		profesor_id = self.profesores_dict_horario[self.cb_profesor_horario.get()]
+		turno_id = self.turnos_dict_horario_prof[turno_nombre]
+
+		# Obtener horarios del profesor
+		horarios = obtener_horarios_profesor(profesor_id, turno_id)
+
+		dias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes']
+		# Encabezados - igual que en vista por curso
+		# Celda vacía en esquina superior izquierda
+		ttk.Label(self.frame_grilla_horario_prof, text='', font=('Segoe UI', 10, 'bold'), background='#f4f6fa').grid(row=0, column=0, padx=(0,0), pady=2, sticky='nsew')
+		# Días de la semana
+		for col, dia in enumerate(dias, start=1):
+			ttk.Label(self.frame_grilla_horario_prof, text=dia, font=('Segoe UI', 10, 'bold'), background='#e0e7ef', foreground='#2a3a4a').grid(row=0, column=col, padx=(0,0), pady=2, sticky='nsew')
+
+		# Configuración de columnas igual que en vista por curso
+		self.frame_grilla_horario_prof.columnconfigure(0, weight=0, minsize=52)
+		for c in range(1, 6):
+			self.frame_grilla_horario_prof.columnconfigure(c, weight=1, minsize=150)
+
+		self._grilla_botones_prof = []
+		for esp in range(1, self.espacios_por_dia_prof + 1):
+			# Etiqueta igual que en vista por curso
+			etiqueta = f"{esp}ª"
+			ttk.Label(self.frame_grilla_horario_prof, text=etiqueta, font=('Segoe UI', 10, 'bold'), background='#e0e7ef', foreground='#2a3a4a', anchor='center').grid(row=esp, column=0, padx=(0,0), pady=2, sticky='nsew')
+			self.frame_grilla_horario_prof.rowconfigure(esp, weight=1, minsize=38)
+
+			fila_botones = []
+			for col, dia in enumerate(dias, start=1):
+				h = next((ho for ho in horarios if ho['dia'] == dia and ho['espacio'] == esp), None)
+				texto = ''
+				if h:
+					texto = f"{h['materia'] or ''}\n{h['division'] or ''}\n{h['hora_inicio'] or ''}-{h['hora_fin'] or ''}"
+				btn = tk.Button(self.frame_grilla_horario_prof, text=texto, wraplength=100, anchor='w', justify='left',
+								bg='#ffffff', relief='ridge', bd=1,
+								command=lambda d=dia, e=esp: self._editar_espacio_horario_profesor(d, e))
+				btn.grid(row=esp, column=col, padx=1, pady=1, sticky='nsew')
+				fila_botones.append(btn)
+			self._grilla_botones_prof.append(fila_botones)
+
+		# Ajustar wraplength dinámicamente
+		def actualizar_wraplength_prof(event=None):
+			for esp, fila in enumerate(self._grilla_botones_prof):
+				for col, btn in enumerate(fila):
+					info = btn.grid_info()
+					col_idx = info['column']
+					width = self.frame_grilla_horario_prof.grid_bbox(col_idx, esp+1)[2]
+					btn.config(wraplength=max(width-8, 60))
+		self.frame_grilla_horario_prof.bind('<Configure>', actualizar_wraplength_prof)
+		self.after(100, lambda: self.frame_grilla_horario_prof.event_generate('<Configure>'))
+		
+		# Actualizar la región de scroll
+		def actualizar_scroll_prof():
+			self.frame_grilla_horario_prof.update_idletasks()
+			self.canvas_horario_prof.configure(scrollregion=(0, 0, self.frame_grilla_horario_prof.winfo_reqwidth(), self.frame_grilla_horario_prof.winfo_reqheight()))
+			self.canvas_horario_prof.yview_moveto(0)
+		self.after(150, actualizar_scroll_prof)
+
+	def _editar_espacio_horario_profesor(self, dia, espacio):
+		if not self.cb_profesor_horario.get() or not self.cb_turno_horario_prof.get():
+			messagebox.showwarning('Advertencia', 'Selecciona un turno y un profesor.')
+			return
+		
+		profesor_id = self.profesores_dict_horario[self.cb_profesor_horario.get()]
+		turno_id = self.turnos_dict_horario_prof[self.cb_turno_horario_prof.get()]
+		
+		# Obtener horario existente si hay
+		horarios = obtener_horarios_profesor(profesor_id, turno_id)
+		h_existente = next((h for h in horarios if h['dia'] == dia and h['espacio'] == espacio), None)
+		
+		# Ventana de edición - estilo similar a por curso
+		win = tk.Toplevel(self)
+		win.configure(bg='#f4f6fa')
+		sufijo = 'ª'
+		win.title(f'{dia} - {espacio}{sufijo} hora')
+		win.geometry('330x360')
+		win.resizable(False, False)
+		win.transient(self)
+		win.grab_set()
+		win.focus_force()
+		ttk.Label(win, text=f'{dia} - {espacio}{sufijo} hora', font=('Segoe UI', 13, 'bold'), background='#e0e7ef', foreground='#2a3a4a').pack(pady=10, fill='x')
+
+		# Horario
+		form = ttk.Frame(win)
+		form.pack(pady=10, padx=10, fill='x')
+		ttk.Label(form, text='Hora inicio:', background='#f4f6fa').grid(row=0, column=0, padx=5, pady=4, sticky='e')
+		entry_inicio = ttk.Entry(form, width=8)
+		entry_inicio.grid(row=0, column=1, padx=5, pady=4, sticky='w')
+		ttk.Label(form, text='Hora fin:', background='#f4f6fa').grid(row=1, column=0, padx=5, pady=4, sticky='e')
+		entry_fin = ttk.Entry(form, width=8)
+		entry_fin.grid(row=1, column=1, padx=5, pady=4, sticky='w')
+
+		# Autoinsertar ':' tras dos dígitos y navegación automática
+		def autoinsert_colon(event, entry, next_widget=None):
+			val = entry.get()
+			if len(val) == 2 and ':' not in val:
+				entry.insert(2, ':')
+			if len(val) > 5:
+				entry.delete(5, tk.END)
+			if len(val.replace(':','')) == 4 and next_widget:
+				next_widget.focus_set()
+		entry_inicio.bind('<KeyRelease>', lambda e: autoinsert_colon(e, entry_inicio, entry_fin))
+		entry_fin.bind('<KeyRelease>', lambda e: autoinsert_colon(e, entry_fin, None))
+
+		# Materia - Obtener solo las materias que tiene asignadas el profesor
+		ttk.Label(form, text='Materia:', background='#f4f6fa').grid(row=2, column=0, padx=5, pady=4, sticky='e')
+		banca = obtener_banca_profesor(profesor_id)
+		materia_nombres = [b['materia'] for b in banca]
+		
+		# Necesitamos obtener los IDs de las materias
+		todas_materias = obtener_materias()
+		materia_ids = {m['nombre']: m['id'] for m in todas_materias}
+		
+		cb_materia = ttk.Combobox(form, values=materia_nombres, state='readonly')
+		cb_materia.grid(row=2, column=1, padx=5, pady=4, sticky='w')
+		# Autocompletar si solo hay una materia
+		autocompletar_combobox(cb_materia, materia_nombres, incluir_vacio=False)
+
+		# Plan de estudios
+		ttk.Label(form, text='Plan:', background='#f4f6fa').grid(row=3, column=0, padx=5, pady=4, sticky='e')
+		planes = obtener_planes_de_turno(turno_id)
+		plan_nombres = [p['nombre'] for p in planes]
+		plan_ids = {p['nombre']: p['id'] for p in planes}
+		cb_plan = ttk.Combobox(form, values=[], state='disabled')
+		cb_plan.grid(row=3, column=1, padx=5, pady=4, sticky='w')
+		
+		# Año (se actualiza al seleccionar plan)
+		ttk.Label(form, text='Año:', background='#f4f6fa').grid(row=4, column=0, padx=5, pady=4, sticky='e')
+		cb_anio = ttk.Combobox(form, values=[], state='disabled')
+		cb_anio.grid(row=4, column=1, padx=5, pady=4, sticky='w')
+		anios_dict = {}
+
+		# División (se actualiza al seleccionar año)
+		ttk.Label(form, text='División:', background='#f4f6fa').grid(row=5, column=0, padx=5, pady=4, sticky='e')
+		cb_division = ttk.Combobox(form, values=[], state='disabled')
+		cb_division.grid(row=5, column=1, padx=5, pady=4, sticky='w')
+		division_ids = {}
+		
+		def on_plan_selected(event=None):
+			nonlocal anios_dict
+			plan_nombre = cb_plan.get()
+			if not plan_nombre:
+				cb_anio['values'] = []
+				cb_anio.set('')
+				cb_anio.config(state='disabled')
+				cb_division['values'] = []
+				cb_division.set('')
+				cb_division.config(state='disabled')
+				return
+			
+			plan_id = plan_ids[plan_nombre]
+			anios = obtener_anios(plan_id)
+			anios_list = [a['nombre'] for a in anios]
+			anios_dict = {a['nombre']: a['id'] for a in anios}
+			
+			# Autocompletar año si solo hay uno
+			if autocompletar_combobox(cb_anio, anios_list, incluir_vacio=True):
+				on_anio_selected()  # Trigger automático si se autocompletó
+		
+		def on_anio_selected(event=None):
+			nonlocal division_ids
+			anio_nombre = cb_anio.get()
+			if not anio_nombre:
+				cb_division['values'] = []
+				cb_division.set('')
+				cb_division.config(state='disabled')
+				return
+			
+			plan_nombre = cb_plan.get()
+			if not plan_nombre:
+				return
+			
+			anio_id = anios_dict[anio_nombre]
+			plan_id = plan_ids[plan_nombre]
+			
+			# Obtener divisiones del turno, plan y año seleccionados
+			divisiones = obtener_divisiones()
+			divisiones_filtradas = [d for d in divisiones 
+								  if d['turno_id'] == turno_id 
+								  and d['plan_id'] == plan_id
+								  and d['anio_id'] == anio_id]
+			division_nombres = [d['nombre'] for d in divisiones_filtradas]
+			division_ids = {d['nombre']: d['id'] for d in divisiones_filtradas}
+			
+			# Autocompletar división si solo hay una
+			autocompletar_combobox(cb_division, division_nombres, incluir_vacio=True)
+		
+		cb_plan.bind('<<ComboboxSelected>>', on_plan_selected)
+		cb_anio.bind('<<ComboboxSelected>>', on_anio_selected)
+		
+		# Configurar plan inicial y autocompletar si solo hay uno
+		if autocompletar_combobox(cb_plan, plan_nombres, incluir_vacio=True):
+			on_plan_selected()  # Trigger automático si se autocompletó
+
+		# Cargar datos existentes
+		if h_existente:
+			entry_inicio.insert(0, h_existente['hora_inicio'] or '')
+			entry_fin.insert(0, h_existente['hora_fin'] or '')
+			cb_materia.set(h_existente['materia'] or '')
+			
+			# Cargar plan, año y división si existen
+			if h_existente['division']:
+				# Buscar el plan, año y división
+				divisiones = obtener_divisiones()
+				div_encontrada = next((d for d in divisiones if d['nombre'] == h_existente['division']), None)
+				if div_encontrada:
+					# Encontrar el plan
+					plan_encontrado = next((p for p in plan_nombres if plan_ids[p] == div_encontrada['plan_id']), None)
+					if plan_encontrado:
+						cb_plan.set(plan_encontrado)
+						on_plan_selected()  # Actualizar años
+						
+						# Encontrar el año
+						anios_disponibles = obtener_anios(div_encontrada['plan_id'])
+						anio_encontrado = next((a['nombre'] for a in anios_disponibles if a['id'] == div_encontrada['anio_id']), None)
+						if anio_encontrado:
+							cb_anio.set(anio_encontrado)
+							on_anio_selected()  # Actualizar divisiones
+							cb_division.set(h_existente['division'])
+
+		# Guardar cambios previos para rollback en caso de error
+		datos_previos = None
+		if h_existente:
+			# Buscar los IDs originales
+			div_id = None
+			if h_existente['division']:
+				divisiones = obtener_divisiones()
+				div_encontrada = next((d for d in divisiones if d['nombre'] == h_existente['division']), None)
+				if div_encontrada:
+					div_id = div_encontrada['id']
+			mat_id = materia_ids.get(h_existente['materia']) if h_existente['materia'] else None
+			datos_previos = {
+				'hora_inicio': h_existente['hora_inicio'],
+				'hora_fin': h_existente['hora_fin'],
+				'division_id': div_id,
+				'materia_id': mat_id
+			}
+
+		def guardar(event=None):
+			hora_inicio = entry_inicio.get().strip()
+			hora_fin = entry_fin.get().strip()
+			division = cb_division.get().strip()
+			materia = cb_materia.get().strip()
+
+			try:
+				if h_existente:
+					eliminar_horario_profesor(h_existente['id'])
+				
+				div_id = division_ids.get(division) if division else None
+				mat_id = materia_ids.get(materia) if materia else None
+				
+				crear_horario_profesor(profesor_id, turno_id, dia, espacio, hora_inicio, hora_fin, div_id, mat_id)
+				self._dibujar_grilla_horario_profesor()
+				win.destroy()
+			except Exception as e:
+				# Rollback en caso de error
+				if datos_previos:
+					try:
+						crear_horario_profesor(profesor_id, turno_id, dia, espacio, 
+											 datos_previos['hora_inicio'], datos_previos['hora_fin'], 
+											 datos_previos['division_id'], datos_previos['materia_id'])
+					except Exception:
+						pass
+				messagebox.showerror('Error', str(e))
+
+		def eliminar_espacio(event=None):
+			if h_existente:
+				if messagebox.askyesno('Confirmar', '¿Eliminar asignación de este espacio?'):
+					try:
+						eliminar_horario_profesor(h_existente['id'])
+						self._dibujar_grilla_horario_profesor()
 						win.destroy()
 					except Exception as e:
 						messagebox.showerror('Error', str(e))
@@ -1628,50 +2177,109 @@ class App(tk.Tk):
 		win = tk.Toplevel(self)
 		win.configure(bg='#f4f6fa')
 		win.title('Configurar horas por turno')
-		win.geometry('550x550')
-		win.minsize(500, 500)
+		win.geometry('280x430')
+		win.resizable(False, False)
 		win.transient(self)
 		win.grab_set()
 		win.focus_force()
 		frame = ttk.Frame(win)
-		frame.pack(padx=10, pady=10, fill='both', expand=True)
-		ttk.Label(frame, text='Turno:').grid(row=0, column=0, padx=5, pady=5, sticky='w')
+		frame.pack(padx=15, pady=15, fill='both', expand=True)
+		
+		ttk.Label(frame, text='Turno:', font=('Segoe UI', 10, 'bold')).grid(row=0, column=0, padx=5, pady=8, sticky='w')
 		turnos = obtener_turnos()
 		turnos_dict = {t['nombre']: t['id'] for t in turnos}
-		cb_turno = ttk.Combobox(frame, values=list(turnos_dict.keys()), state='readonly')
-		cb_turno.grid(row=0, column=1, padx=5, pady=5, sticky='w')
+		cb_turno = ttk.Combobox(frame, values=list(turnos_dict.keys()), state='readonly', width=15)
+		cb_turno.grid(row=0, column=1, columnspan=4, padx=5, pady=8, sticky='w')
 
-		# Tabla simple para espacios
+		# Función de validación de horas (copiada de edición de horarios)
+		def autoinsert_colon(event, entry, next_widget=None):
+			val = entry.get()
+			if len(val) == 2 and ':' not in val:
+				entry.insert(2, ':')
+			if len(val) > 5:
+				entry.delete(5, tk.END)
+			if len(val.replace(':','')) == 4 and next_widget:
+				next_widget.focus_set()
+
+		# Tabla con labels mejorados
 		entries = {}
 		for esp in range(1, 9):
-			ttk.Label(frame, text=f'{esp}ª:').grid(row=esp, column=0, padx=5, pady=2, sticky='e')
-			e_inicio = ttk.Entry(frame, width=8)
-			e_inicio.grid(row=esp, column=1, padx=5, pady=2, sticky='w')
-			e_fin = ttk.Entry(frame, width=8)
-			e_fin.grid(row=esp, column=2, padx=5, pady=2, sticky='w')
+			ttk.Label(frame, text=f'{esp}ª:', font=('Segoe UI', 9, 'bold')).grid(row=esp, column=0, padx=5, pady=3, sticky='e')
+			
+			e_inicio = ttk.Entry(frame, width=7)
+			e_inicio.insert(0, 'hh:mm')
+			e_inicio.config(foreground='gray')
+			e_inicio.grid(row=esp, column=1, padx=2, pady=3)
+			
+			ttk.Label(frame, text='Hs  a', font=('Segoe UI', 9)).grid(row=esp, column=2, padx=2, pady=3)
+			
+			e_fin = ttk.Entry(frame, width=7)
+			e_fin.insert(0, 'hh:mm')
+			e_fin.config(foreground='gray')
+			e_fin.grid(row=esp, column=3, padx=2, pady=3)
+			
+			ttk.Label(frame, text='Hs', font=('Segoe UI', 9)).grid(row=esp, column=4, padx=2, pady=3, sticky='w')
+			
 			entries[esp] = (e_inicio, e_fin)
+			
+			# Placeholder functionality
+			def on_focus_in(event, entry):
+				if entry.get() == 'hh:mm':
+					entry.delete(0, tk.END)
+					entry.config(foreground='black')
+			
+			def on_focus_out(event, entry):
+				if entry.get() == '':
+					entry.insert(0, 'hh:mm')
+					entry.config(foreground='gray')
+			
+			e_inicio.bind('<FocusIn>', lambda e, ent=e_inicio: on_focus_in(e, ent))
+			e_inicio.bind('<FocusOut>', lambda e, ent=e_inicio: on_focus_out(e, ent))
+			e_fin.bind('<FocusIn>', lambda e, ent=e_fin: on_focus_in(e, ent))
+			e_fin.bind('<FocusOut>', lambda e, ent=e_fin: on_focus_out(e, ent))
+			
+			# Autocompletado de ':'
+			if esp < 8:
+				next_e = entries.get(esp+1, (None, None))[0]
+			else:
+				next_e = None
+			e_inicio.bind('<KeyRelease>', lambda e, ent=e_inicio, nxt=e_fin: autoinsert_colon(e, ent, nxt))
+			e_fin.bind('<KeyRelease>', lambda e, ent=e_fin, nxt=next_e: autoinsert_colon(e, ent, nxt))
 
 		apply_var = tk.IntVar(value=0)
 		chk_apply = ttk.Checkbutton(frame, text='Aplicar a horarios existentes', variable=apply_var)
-		chk_apply.grid(row=9, column=0, columnspan=3, pady=8, sticky='w')
+		chk_apply.grid(row=9, column=0, columnspan=5, pady=10, sticky='w')
 
 		def cargar_defaults(event=None):
 			nombre = cb_turno.get()
 			if not nombre:
 				for esp in entries:
-					entries[esp][0].delete(0, tk.END)
-					entries[esp][1].delete(0, tk.END)
+					e_i, e_f = entries[esp]
+					e_i.delete(0, tk.END)
+					e_i.insert(0, 'hh:mm')
+					e_i.config(foreground='gray')
+					e_f.delete(0, tk.END)
+					e_f.insert(0, 'hh:mm')
+					e_f.config(foreground='gray')
 				return
 			turno_id = turnos_dict[nombre]
 			for esp in entries:
 				d = obtener_turno_espacio_hora(turno_id, esp)
-				entries[esp][0].delete(0, tk.END)
-				entries[esp][1].delete(0, tk.END)
-				if d:
-					if d.get('hora_inicio'):
-						entries[esp][0].insert(0, d.get('hora_inicio'))
-					if d.get('hora_fin'):
-						entries[esp][1].insert(0, d.get('hora_fin'))
+				e_i, e_f = entries[esp]
+				e_i.delete(0, tk.END)
+				e_f.delete(0, tk.END)
+				if d and d.get('hora_inicio'):
+					e_i.insert(0, d.get('hora_inicio'))
+					e_i.config(foreground='black')
+				else:
+					e_i.insert(0, 'hh:mm')
+					e_i.config(foreground='gray')
+				if d and d.get('hora_fin'):
+					e_f.insert(0, d.get('hora_fin'))
+					e_f.config(foreground='black')
+				else:
+					e_f.insert(0, 'hh:mm')
+					e_f.config(foreground='gray')
 
 		cb_turno.bind('<<ComboboxSelected>>', cargar_defaults)
 
@@ -1685,6 +2293,11 @@ class App(tk.Tk):
 			for esp in entries:
 				hi = entries[esp][0].get().strip()
 				hf = entries[esp][1].get().strip()
+				# Ignorar placeholders
+				if hi == 'hh:mm':
+					hi = ''
+				if hf == 'hh:mm':
+					hf = ''
 				set_turno_espacio_hora(turno_id, esp, hi if hi else None, hf if hf else None)
 			# Aplicar a horarios existentes si se pidió
 			if apply_var.get():
@@ -1695,8 +2308,13 @@ class App(tk.Tk):
 				divs = [r[0] for r in c.fetchall()]
 				dias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes']
 				for esp in entries:
-					hi = entries[esp][0].get().strip() or None
-					hf = entries[esp][1].get().strip() or None
+					hi = entries[esp][0].get().strip()
+					hf = entries[esp][1].get().strip()
+					# Ignorar placeholders
+					if hi == 'hh:mm':
+						hi = None
+					if hf == 'hh:mm':
+						hf = None
 					if hi is None and hf is None:
 						continue
 					for div in divs:
@@ -1716,9 +2334,9 @@ class App(tk.Tk):
 			win.destroy()
 
 		btns = ttk.Frame(frame)
-		btns.grid(row=10, column=0, columnspan=3, pady=10)
-		ttk.Button(btns, text='Guardar', command=guardar).pack(side='left', padx=5)
-		ttk.Button(btns, text='Cancelar', command=win.destroy).pack(side='left', padx=5)
+		btns.grid(row=10, column=0, columnspan=5, pady=15)
+		ttk.Button(btns, text='Guardar', command=guardar, width=12).pack(side='left', padx=5)
+		ttk.Button(btns, text='Cancelar', command=win.destroy, width=12).pack(side='left', padx=5)
 
 	def mostrar_planes(self):
 		self.limpiar_frame()

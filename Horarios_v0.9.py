@@ -1158,11 +1158,7 @@ class App(tk.Tk):
 			return
 		try:
 			eliminar_division(self.division_seleccionada_id)
-			self._cargar_divisiones_en_tree()
-			self.entry_nombre_division.delete(0, tk.END)
-			self.cb_turno_division.set('')
-			self.cb_plan_division.set('')
-			self.cb_anio_division.set('')
+			self._recargar_divisiones_tree()
 			self.division_seleccionada_id = None
 		except Exception as e:
 			messagebox.showerror('Error', str(e))
@@ -1177,17 +1173,10 @@ class App(tk.Tk):
 		total_divisiones = len(divisiones)
 		frame_tot = ttk.Frame(self.frame_principal)
 		frame_tot.pack(pady=2)
-		ttk.Label(frame_tot, text=f'Total de divisiones: {total_divisiones}').grid(row=0, column=0, padx=10)
+		self.label_total_divisiones = ttk.Label(frame_tot, text=f'Total de divisiones: {total_divisiones}')
+		self.label_total_divisiones.grid(row=0, column=0, padx=10)
 
-		# Filtro
-		frame_filtro = ttk.Frame(self.frame_principal)
-		frame_filtro.pack(pady=2)
-		ttk.Label(frame_filtro, text='Filtro:').grid(row=0, column=0, padx=5)
-		self.filtro_division = tk.StringVar()
-		entry_filtro = ttk.Entry(frame_filtro, textvariable=self.filtro_division)
-		entry_filtro.grid(row=0, column=1, padx=5)
-
-		# Selección de Turno, Plan, Año, División
+		# Selección de Turno, Plan, Año
 		frame_sel = ttk.Frame(self.frame_principal)
 		frame_sel.pack(pady=5)
 		ttk.Label(frame_sel, text='Turno:').grid(row=0, column=0, padx=5)
@@ -1201,9 +1190,6 @@ class App(tk.Tk):
 		ttk.Label(frame_sel, text='Año:').grid(row=0, column=4, padx=5)
 		self.cb_anio_division = ttk.Combobox(frame_sel, values=[], state='disabled')
 		self.cb_anio_division.grid(row=0, column=5, padx=5)
-		ttk.Label(frame_sel, text='División:').grid(row=0, column=6, padx=5)
-		self.cb_division_horario = ttk.Combobox(frame_sel, values=[], state='disabled')
-		self.cb_division_horario.grid(row=0, column=7, padx=5)
 
 		def on_turno_selected(event=None):
 			turno_nombre = self.cb_turno_division.get()
@@ -1224,6 +1210,10 @@ class App(tk.Tk):
 			self.cb_anio_division['values'] = []
 			self.cb_anio_division.set('')
 			self.cb_anio_division.config(state='disabled')
+			# Pasar focus a Plan
+			if planes:
+				self.cb_plan_division.focus_set()
+			self._recargar_divisiones_tree()
 		def on_plan_selected(event=None):
 			plan_nombre = self.cb_plan_division.get()
 			if not plan_nombre:
@@ -1236,34 +1226,24 @@ class App(tk.Tk):
 			self.cb_anio_division['values'] = [a['nombre'] for a in anios]
 			self.cb_anio_division.set('')
 			self.cb_anio_division.config(state='readonly' if anios else 'disabled')
+			# Pasar focus a Año
+			if anios:
+				self.cb_anio_division.focus_set()
+			self._recargar_divisiones_tree()
+		def on_anio_selected(event=None):
+			self._recargar_divisiones_tree()
 		self.cb_turno_division.bind('<<ComboboxSelected>>', on_turno_selected)
 		self.cb_plan_division.bind('<<ComboboxSelected>>', on_plan_selected)
+		self.cb_anio_division.bind('<<ComboboxSelected>>', on_anio_selected)
+		
+		# Focus inicial en Turno
+		self.cb_turno_division.focus_set()
 
 		# Tabla de divisiones usando helper
 		frame_tabla = ttk.Frame(self.frame_principal)
 		frame_tabla.pack(pady=10, fill='both', expand=True)
-		self.tree_divisiones = crear_treeview(frame_tabla, ('Nombre', 'Turno', 'Plan', 'Año'), ('Nombre', 'Turno', 'Plan', 'Año'))
+		self.tree_divisiones = crear_treeview(frame_tabla, ('Turno', 'Plan', 'Año', 'División'), ('Turno', 'Plan', 'Año', 'División'))
 		self._recargar_divisiones_tree()
-
-		def filtrar_divisiones(*args):
-			filtro = self.filtro_division.get().lower()
-			divisiones = obtener_divisiones()
-			datos = []
-			for c in divisiones:
-				turno = next((t['nombre'] for t in obtener_turnos() if t['id'] == c['turno_id']), '')
-				plan = next((p['nombre'] for p in obtener_planes() if p['id'] == c['plan_id']), '')
-				anio = next((a['nombre'] for a in obtener_anios(c['plan_id']) if a['id'] == c['anio_id']), '')
-				if filtro in c['nombre'].lower():
-					datos.append({'id': c['id'], 'Nombre': c['nombre'], 'Turno': turno, 'Plan': plan, 'Año': anio})
-			recargar_treeview(self.tree_divisiones, datos, ['Nombre', 'Turno', 'Plan', 'Año'])
-		self.filtro_division.trace_add('write', filtrar_divisiones)
-
-		# Formulario de alta/edición
-		form = ttk.Frame(self.frame_principal)
-		form.pack(pady=10)
-		ttk.Label(form, text='Nombre:').grid(row=0, column=0, padx=5, pady=2)
-		self.entry_nombre_division = ttk.Entry(form)
-		self.entry_nombre_division.grid(row=0, column=1, padx=5, pady=2)
 
 		# Botones
 		btns = ttk.Frame(self.frame_principal)
@@ -1278,75 +1258,306 @@ class App(tk.Tk):
 
 	def _recargar_divisiones_tree(self):
 		divisiones = obtener_divisiones()
+		
+		# Obtener filtros seleccionados
+		turno_nombre = self.cb_turno_division.get()
+		plan_nombre = self.cb_plan_division.get()
+		anio_nombre = self.cb_anio_division.get()
+		
 		datos = []
 		for c in divisiones:
 			turno = next((t['nombre'] for t in obtener_turnos() if t['id'] == c['turno_id']), '')
 			plan = next((p['nombre'] for p in obtener_planes() if p['id'] == c['plan_id']), '')
 			anio = next((a['nombre'] for a in obtener_anios(c['plan_id']) if a['id'] == c['anio_id']), '')
-			datos.append({'id': c['id'], 'Nombre': c['nombre'], 'Turno': turno, 'Plan': plan, 'Año': anio})
-		recargar_treeview(self.tree_divisiones, datos, ['Nombre', 'Turno', 'Plan', 'Año'])
+			
+			# Aplicar filtros
+			if turno_nombre and turno != turno_nombre:
+				continue
+			if plan_nombre and plan != plan_nombre:
+				continue
+			if anio_nombre and anio != anio_nombre:
+				continue
+			
+			datos.append({'id': c['id'], 'Turno': turno, 'Plan': plan, 'Año': anio, 'División': c['nombre']})
+		
+		recargar_treeview(self.tree_divisiones, datos, ['Turno', 'Plan', 'Año', 'División'])
+		
+		# Actualizar contador de divisiones
+		self.label_total_divisiones.config(text=f'Total de divisiones: {len(datos)}')
 
 	# Eliminada: _cargar_divisiones_en_tree (reemplazada por _recargar_divisiones_tree)
 
 	def _agregar_division(self):
-		nombre = self.entry_nombre_division.get().strip()
-		if not nombre:
-			messagebox.showerror('Error', 'Ingrese un nombre válido.')
-			return
-		turno_nombre = self.cb_turno_division.get()
-		plan_nombre = self.cb_plan_division.get()
-		anio_nombre = self.cb_anio_division.get()
-		if not (turno_nombre and plan_nombre and anio_nombre):
-			messagebox.showerror('Error', 'Seleccione turno, plan y año.')
-			return
-		turno_id = self.turnos_dict[turno_nombre]
-		plan_id = self.planes_dict[plan_nombre]
-		anios = obtener_anios(plan_id)
-		anio_id = next((a['id'] for a in anios if a['nombre'] == anio_nombre), None)
-		if not anio_id:
-			messagebox.showerror('Error', 'Año inválido.')
-			return
-		try:
-			conn = get_connection()
-			c = conn.cursor()
-			c.execute('INSERT INTO division (nombre, turno_id, plan_id, anio_id) VALUES (?, ?, ?, ?)', (nombre, turno_id, plan_id, anio_id))
-			conn.commit()
-			conn.close()
-			self._cargar_divisiones_en_tree()
-			self.entry_nombre_division.delete(0, tk.END)
-		except Exception as e:
-			if 'UNIQUE constraint failed' in str(e):
-				messagebox.showerror('Error', 'Ya existe una división con ese nombre, turno, plan y año.')
-			else:
-				messagebox.showerror('Error', str(e))
+		win = tk.Toplevel(self)
+		win.configure(bg='#f4f6fa')
+		win.title('Agregar División')
+		win.geometry('450x250')
+		win.minsize(450, 250)
+		win.transient(self)
+		win.grab_set()
+		win.focus_force()
+		
+		ttk.Label(win, text='Nueva División', font=('Arial', 12)).pack(pady=10)
+		
+		# Formulario
+		form = ttk.Frame(win)
+		form.pack(pady=10)
+		
+		ttk.Label(form, text='Turno:').grid(row=0, column=0, padx=5, pady=5, sticky='e')
+		turnos = obtener_turnos()
+		turnos_dict = {t['nombre']: t['id'] for t in turnos}
+		cb_turno = ttk.Combobox(form, values=list(turnos_dict.keys()), state='readonly', width=25)
+		cb_turno.grid(row=0, column=1, padx=5, pady=5)
+		cb_turno.focus_set()
+		
+		ttk.Label(form, text='Plan:').grid(row=1, column=0, padx=5, pady=5, sticky='e')
+		cb_plan = ttk.Combobox(form, values=[], state='disabled', width=25)
+		cb_plan.grid(row=1, column=1, padx=5, pady=5)
+		
+		ttk.Label(form, text='Año:').grid(row=2, column=0, padx=5, pady=5, sticky='e')
+		cb_anio = ttk.Combobox(form, values=[], state='disabled', width=25)
+		cb_anio.grid(row=2, column=1, padx=5, pady=5)
+		
+		ttk.Label(form, text='División:').grid(row=3, column=0, padx=5, pady=5, sticky='e')
+		entry_division = ttk.Entry(form, width=27)
+		entry_division.grid(row=3, column=1, padx=5, pady=5)
+		
+		planes_dict = {}
+		anios_list = []
+		
+		def on_turno_selected(event=None):
+			turno_nombre = cb_turno.get()
+			if not turno_nombre:
+				cb_plan['values'] = []
+				cb_plan.set('')
+				cb_plan.config(state='disabled')
+				cb_anio['values'] = []
+				cb_anio.set('')
+				cb_anio.config(state='disabled')
+				return
+			turno_id = turnos_dict[turno_nombre]
+			planes = obtener_planes_de_turno(turno_id)
+			planes_dict.clear()
+			planes_dict.update({p['nombre']: p['id'] for p in planes})
+			cb_plan['values'] = list(planes_dict.keys())
+			cb_plan.set('')
+			cb_plan.config(state='readonly' if planes else 'disabled')
+			cb_anio['values'] = []
+			cb_anio.set('')
+			cb_anio.config(state='disabled')
+			if planes:
+				cb_plan.focus_set()
+		
+		def on_plan_selected(event=None):
+			plan_nombre = cb_plan.get()
+			if not plan_nombre:
+				cb_anio['values'] = []
+				cb_anio.set('')
+				cb_anio.config(state='disabled')
+				return
+			plan_id = planes_dict[plan_nombre]
+			anios = obtener_anios(plan_id)
+			anios_list.clear()
+			anios_list.extend(anios)
+			cb_anio['values'] = [a['nombre'] for a in anios]
+			cb_anio.set('')
+			cb_anio.config(state='readonly' if anios else 'disabled')
+			if anios:
+				cb_anio.focus_set()
+		
+		def on_anio_selected(event=None):
+			entry_division.focus_set()
+		
+		cb_turno.bind('<<ComboboxSelected>>', on_turno_selected)
+		cb_plan.bind('<<ComboboxSelected>>', on_plan_selected)
+		cb_anio.bind('<<ComboboxSelected>>', on_anio_selected)
+		
+		def guardar(event=None):
+			nombre = entry_division.get().strip()
+			if not nombre:
+				messagebox.showerror('Error', 'Ingrese un nombre de división válido.', parent=win)
+				return
+			turno_nombre = cb_turno.get()
+			plan_nombre = cb_plan.get()
+			anio_nombre = cb_anio.get()
+			if not (turno_nombre and plan_nombre and anio_nombre):
+				messagebox.showerror('Error', 'Seleccione turno, plan y año.', parent=win)
+				return
+			turno_id = turnos_dict[turno_nombre]
+			plan_id = planes_dict[plan_nombre]
+			anio_id = next((a['id'] for a in anios_list if a['nombre'] == anio_nombre), None)
+			if not anio_id:
+				messagebox.showerror('Error', 'Año inválido.', parent=win)
+				return
+			try:
+				conn = get_connection()
+				c = conn.cursor()
+				c.execute('INSERT INTO division (nombre, turno_id, plan_id, anio_id) VALUES (?, ?, ?, ?)', 
+						  (nombre, turno_id, plan_id, anio_id))
+				conn.commit()
+				conn.close()
+				self._recargar_divisiones_tree()
+				win.destroy()
+			except Exception as e:
+				if 'UNIQUE constraint failed' in str(e):
+					messagebox.showerror('Error', 'Ya existe una división con ese nombre, turno, plan y año.', parent=win)
+				else:
+					messagebox.showerror('Error', str(e), parent=win)
+		
+		# Botones
+		btns = ttk.Frame(win)
+		btns.pack(pady=10)
+		ttk.Button(btns, text='Guardar', command=guardar).grid(row=0, column=0, padx=5)
+		ttk.Button(btns, text='Cancelar', command=win.destroy).grid(row=0, column=1, padx=5)
+		
+		entry_division.bind('<Return>', guardar)
 
 	def _editar_division(self):
 		if not self.division_seleccionada_id:
 			messagebox.showerror('Error', 'Seleccione una división para editar.')
 			return
-		nombre = self.entry_nombre_division.get().strip()
-		turno_nombre = self.cb_turno_division.get()
-		plan_nombre = self.cb_plan_division.get()
-		anio_nombre = self.cb_anio_division.get()
-		if not (nombre and turno_nombre and plan_nombre and anio_nombre):
-			messagebox.showerror('Error', 'Complete todos los campos.')
+		
+		# Obtener datos de la división seleccionada
+		divisiones = obtener_divisiones()
+		division_actual = next((x for x in divisiones if str(x['id']) == str(self.division_seleccionada_id)), None)
+		if not division_actual:
+			messagebox.showerror('Error', 'División no encontrada.')
 			return
-		turno_id = self.turnos_dict[turno_nombre]
-		plan_id = self.planes_dict[plan_nombre]
-		anios = obtener_anios(plan_id)
-		anio_id = next((a['id'] for a in anios if a['nombre'] == anio_nombre), None)
-		if not anio_id:
-			messagebox.showerror('Error', 'Año inválido.')
-			return
-		try:
-			conn = get_connection()
-			c = conn.cursor()
-			c.execute('UPDATE division SET nombre=?, turno_id=?, plan_id=?, anio_id=? WHERE id=?', (nombre, turno_id, plan_id, anio_id, self.division_seleccionada_id))
-			conn.commit()
-			conn.close()
-			self._cargar_divisiones_en_tree()
-		except Exception as e:
-			messagebox.showerror('Error', str(e))
+		
+		win = tk.Toplevel(self)
+		win.configure(bg='#f4f6fa')
+		win.title('Editar División')
+		win.geometry('450x250')
+		win.minsize(450, 250)
+		win.transient(self)
+		win.grab_set()
+		win.focus_force()
+		
+		ttk.Label(win, text='Editar División', font=('Arial', 12)).pack(pady=10)
+		
+		# Formulario
+		form = ttk.Frame(win)
+		form.pack(pady=10)
+		
+		ttk.Label(form, text='Turno:').grid(row=0, column=0, padx=5, pady=5, sticky='e')
+		turnos = obtener_turnos()
+		turnos_dict = {t['nombre']: t['id'] for t in turnos}
+		cb_turno = ttk.Combobox(form, values=list(turnos_dict.keys()), state='readonly', width=25)
+		cb_turno.grid(row=0, column=1, padx=5, pady=5)
+		
+		ttk.Label(form, text='Plan:').grid(row=1, column=0, padx=5, pady=5, sticky='e')
+		cb_plan = ttk.Combobox(form, values=[], state='disabled', width=25)
+		cb_plan.grid(row=1, column=1, padx=5, pady=5)
+		
+		ttk.Label(form, text='Año:').grid(row=2, column=0, padx=5, pady=5, sticky='e')
+		cb_anio = ttk.Combobox(form, values=[], state='disabled', width=25)
+		cb_anio.grid(row=2, column=1, padx=5, pady=5)
+		
+		ttk.Label(form, text='División:').grid(row=3, column=0, padx=5, pady=5, sticky='e')
+		entry_division = ttk.Entry(form, width=27)
+		entry_division.grid(row=3, column=1, padx=5, pady=5)
+		entry_division.insert(0, division_actual['nombre'])
+		
+		planes_dict = {}
+		anios_list = []
+		
+		def on_turno_selected(event=None):
+			turno_nombre = cb_turno.get()
+			if not turno_nombre:
+				cb_plan['values'] = []
+				cb_plan.set('')
+				cb_plan.config(state='disabled')
+				cb_anio['values'] = []
+				cb_anio.set('')
+				cb_anio.config(state='disabled')
+				return
+			turno_id = turnos_dict[turno_nombre]
+			planes = obtener_planes_de_turno(turno_id)
+			planes_dict.clear()
+			planes_dict.update({p['nombre']: p['id'] for p in planes})
+			cb_plan['values'] = list(planes_dict.keys())
+			cb_plan.config(state='readonly' if planes else 'disabled')
+			# Mantener selección si es el mismo turno
+			if event is None:
+				plan_actual = next((p['nombre'] for p in obtener_planes() if p['id'] == division_actual['plan_id']), '')
+				if plan_actual in planes_dict:
+					cb_plan.set(plan_actual)
+					cb_plan.event_generate('<<ComboboxSelected>>')
+			else:
+				cb_plan.set('')
+				cb_anio['values'] = []
+				cb_anio.set('')
+				cb_anio.config(state='disabled')
+		
+		def on_plan_selected(event=None):
+			plan_nombre = cb_plan.get()
+			if not plan_nombre:
+				cb_anio['values'] = []
+				cb_anio.set('')
+				cb_anio.config(state='disabled')
+				return
+			plan_id = planes_dict[plan_nombre]
+			anios = obtener_anios(plan_id)
+			anios_list.clear()
+			anios_list.extend(anios)
+			cb_anio['values'] = [a['nombre'] for a in anios]
+			cb_anio.config(state='readonly' if anios else 'disabled')
+			# Mantener selección si es el mismo plan
+			if event is None:
+				anio_actual = next((a['nombre'] for a in obtener_anios(division_actual['plan_id']) if a['id'] == division_actual['anio_id']), '')
+				if anio_actual in [a['nombre'] for a in anios]:
+					cb_anio.set(anio_actual)
+			else:
+				cb_anio.set('')
+		
+		cb_turno.bind('<<ComboboxSelected>>', on_turno_selected)
+		cb_plan.bind('<<ComboboxSelected>>', on_plan_selected)
+		
+		# Precargar datos actuales
+		turno_actual = next((t['nombre'] for t in turnos if t['id'] == division_actual['turno_id']), '')
+		cb_turno.set(turno_actual)
+		on_turno_selected()
+		
+		def guardar(event=None):
+			nombre = entry_division.get().strip()
+			if not nombre:
+				messagebox.showerror('Error', 'Ingrese un nombre de división válido.', parent=win)
+				return
+			turno_nombre = cb_turno.get()
+			plan_nombre = cb_plan.get()
+			anio_nombre = cb_anio.get()
+			if not (turno_nombre and plan_nombre and anio_nombre):
+				messagebox.showerror('Error', 'Complete todos los campos.', parent=win)
+				return
+			turno_id = turnos_dict[turno_nombre]
+			plan_id = planes_dict[plan_nombre]
+			anio_id = next((a['id'] for a in anios_list if a['nombre'] == anio_nombre), None)
+			if not anio_id:
+				messagebox.showerror('Error', 'Año inválido.', parent=win)
+				return
+			try:
+				conn = get_connection()
+				c = conn.cursor()
+				c.execute('UPDATE division SET nombre=?, turno_id=?, plan_id=?, anio_id=? WHERE id=?', 
+						  (nombre, turno_id, plan_id, anio_id, self.division_seleccionada_id))
+				conn.commit()
+				conn.close()
+				self._recargar_divisiones_tree()
+				win.destroy()
+			except Exception as e:
+				if 'UNIQUE constraint failed' in str(e):
+					messagebox.showerror('Error', 'Ya existe una división con ese nombre, turno, plan y año.', parent=win)
+				else:
+					messagebox.showerror('Error', str(e), parent=win)
+		
+		# Botones
+		btns = ttk.Frame(win)
+		btns.pack(pady=10)
+		ttk.Button(btns, text='Guardar', command=guardar).grid(row=0, column=0, padx=5)
+		ttk.Button(btns, text='Cancelar', command=win.destroy).grid(row=0, column=1, padx=5)
+		
+		entry_division.bind('<Return>', guardar)
+		entry_division.focus_set()
 
 	def _on_select_division(self, event=None):
 		sel = self.tree_divisiones.selection()
@@ -1355,22 +1566,6 @@ class App(tk.Tk):
 			return
 		cid = sel[0]
 		self.division_seleccionada_id = cid
-		divisiones = obtener_divisiones()
-		c = next((x for x in divisiones if str(x['id']) == str(cid)), None)
-		if c:
-			self.entry_nombre_division.delete(0, tk.END)
-			self.entry_nombre_division.insert(0, c['nombre'])
-			# Set turno, plan, año in comboboxes
-			turno = next((t['nombre'] for t in obtener_turnos() if t['id'] == c['turno_id']), '')
-			self.cb_turno_division.set(turno)
-			# Trigger plan loading
-			self.cb_turno_division.event_generate('<<ComboboxSelected>>')
-			plan = next((p['nombre'] for p in obtener_planes() if p['id'] == c['plan_id']), '')
-			self.cb_plan_division.set(plan)
-			# Trigger año loading
-			self.cb_plan_division.event_generate('<<ComboboxSelected>>')
-			anio = next((a['nombre'] for a in obtener_anios(c['plan_id']) if a['id'] == c['anio_id']), '')
-			self.cb_anio_division.set(anio)
 
 	def mostrar_horarios_curso(self):
 		self.limpiar_frame()

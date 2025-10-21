@@ -81,7 +81,7 @@ def init_db():
 		FOREIGN KEY(plan_id) REFERENCES plan_estudio(id),
 		UNIQUE(nombre, plan_id)
 	)''')
-	# Materias por año
+	# Obligaciones por curso
 	c.execute('''CREATE TABLE IF NOT EXISTS anio_materia (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		anio_id INTEGER,
@@ -95,7 +95,7 @@ def init_db():
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		nombre TEXT UNIQUE NOT NULL
 	)''')
-	# Materias por plan de estudio
+	# Obligaciones por plan de estudio
 	c.execute('''CREATE TABLE IF NOT EXISTS plan_materia (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		plan_id INTEGER,
@@ -130,7 +130,7 @@ def init_db():
 		FOREIGN KEY(anio_id) REFERENCES anio(id),
 		UNIQUE(nombre, turno_id, plan_id, anio_id)
 	)''')
-	# Materias
+	# Obligaciones
 	c.execute('''CREATE TABLE IF NOT EXISTS materia (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		nombre TEXT UNIQUE NOT NULL,
@@ -141,7 +141,7 @@ def init_db():
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		nombre TEXT UNIQUE NOT NULL
 	)''')
-	# Banca de horas por materia para cada profesor
+	# Banca de horas por obligación para cada profesor
 	c.execute('''CREATE TABLE IF NOT EXISTS profesor_materia (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		profesor_id INTEGER,
@@ -338,7 +338,7 @@ def eliminar_anio(id_: int):
 	conn.commit()
 	conn.close()
 
-# CRUD Materias por año
+# CRUD Obligaciones por curso
 def agregar_materia_a_anio(anio_id: int, materia_id: int):
 	try:
 		conn = get_connection()
@@ -793,7 +793,7 @@ class App(tk.Tk):
 		self.config(menu=menubar)
 
 		planes_menu = tk.Menu(menubar, tearoff=0)
-		planes_menu.add_command(label='Gestionar Materias', command=self.mostrar_materias)
+		planes_menu.add_command(label='Gestionar Materias/Obligaciones', command=self.mostrar_materias)
 		planes_menu.add_separator()
 		planes_menu.add_command(label='Gestionar Planes de Estudio', command=self.mostrar_planes)
 		menubar.add_cascade(label='Plan de estudios', menu=planes_menu)
@@ -803,8 +803,8 @@ class App(tk.Tk):
 		menubar.add_cascade(label='Turnos', menu=turnos_menu)
 
 		profesores_menu = tk.Menu(menubar, tearoff=0)
-		profesores_menu.add_command(label='Gestionar Profesores', command=self.mostrar_profesores)
-		menubar.add_cascade(label='Profesores', menu=profesores_menu)
+		profesores_menu.add_command(label='Gestionar personal', command=self.mostrar_profesores)
+		menubar.add_cascade(label='Personal', menu=profesores_menu)
 
 		cursos_menu = tk.Menu(menubar, tearoff=0)
 		cursos_menu.add_command(label='Gestionar Cursos', command=self.mostrar_divisiones)
@@ -833,7 +833,7 @@ class App(tk.Tk):
 
 	def mostrar_materias(self):
 		self.limpiar_frame()
-		ttk.Label(self.frame_principal, text='Gestión de Materias', font=('Arial', 14)).pack(pady=10)
+		ttk.Label(self.frame_principal, text='Gestión de Materias/Obligaciones', font=('Arial', 14)).pack(pady=10)
 
 		# Totales
 		materias = obtener_materias()
@@ -841,7 +841,7 @@ class App(tk.Tk):
 		total_horas = sum(m['horas_semanales'] for m in materias)
 		frame_tot = ttk.Frame(self.frame_principal)
 		frame_tot.pack(pady=2)
-		ttk.Label(frame_tot, text=f'Total de materias: {total_materias}').grid(row=0, column=0, padx=10)
+		ttk.Label(frame_tot, text=f'Total de materias/obligaciones: {total_materias}').grid(row=0, column=0, padx=10)
 		ttk.Label(frame_tot, text=f'Total de horas institucionales: {total_horas}').grid(row=0, column=1, padx=10)
 
 		# Filtro
@@ -852,7 +852,7 @@ class App(tk.Tk):
 		entry_filtro = ttk.Entry(frame_filtro, textvariable=self.filtro_materia)
 		entry_filtro.grid(row=0, column=1, padx=5)
 
-		# Tabla de materias usando helper
+		# Tabla de obligaciones usando helper
 		frame_tabla = ttk.Frame(self.frame_principal)
 		frame_tabla.pack(pady=10, fill='both', expand=True)
 		self.tree_materias = crear_treeview(frame_tabla, ('Nombre', 'Horas'), ('Nombre', 'Horas asignadas'))
@@ -886,7 +886,7 @@ class App(tk.Tk):
 		materias_ordenadas = sorted(obtener_materias(), key=lambda m: m['nombre'].lower())
 		recargar_treeview(self.tree_materias, materias_ordenadas, ['nombre', 'horas_semanales'])
 
-	# Eliminada: _cargar_materias_en_tree (reemplazada por _recargar_materias_tree)
+	# Eliminada: _cargar_obligaciones_en_tree (reemplazada por _recargar_materias_tree)
 
 	def _agregar_materia(self):
 		nombre = self.entry_nombre_materia.get().strip()
@@ -942,7 +942,7 @@ class App(tk.Tk):
 
 	def mostrar_profesores(self):
 		self.limpiar_frame()
-		ttk.Label(self.frame_principal, text='Gestión de Profesores', font=('Arial', 14)).pack(pady=10)
+		ttk.Label(self.frame_principal, text='Gestión de personal', font=('Arial', 14)).pack(pady=10)
 
 		# Totales (se actualiza dinámicamente)
 		self.label_total_profesores = ttk.Label(self.frame_principal, text='')
@@ -978,7 +978,7 @@ class App(tk.Tk):
 				profesores = obtener_profesores_por_turno(turno_id)
 			profesores_filtrados = [p for p in profesores if filtro in p['nombre'].lower()]
 			recargar_treeview(self.tree_profesores, profesores_filtrados, ['nombre'])
-			self.label_total_profesores.config(text=f'Total de profesores: {len(profesores_filtrados)}')
+			self.label_total_profesores.config(text=f'Total de agentes: {len(profesores_filtrados)}')
 		self.filtro_profesor.trace_add('write', filtrar_profesores)
 		self.cb_turno_profesor.bind('<<ComboboxSelected>>', lambda e: filtrar_profesores())
 		# Inicializar el total
@@ -998,7 +998,7 @@ class App(tk.Tk):
 		ttk.Button(btns, text='Editar', command=self._editar_profesor).grid(row=0, column=1, padx=5)
 		ttk.Button(btns, text='Eliminar', command=self._eliminar_profesor).grid(row=0, column=2, padx=5)
 		ttk.Button(btns, text='Banca de horas', command=self._gestionar_banca_profesor).grid(row=0, column=3, padx=5)
-		ttk.Button(btns, text='Turnos del profesor', command=self._gestionar_turnos_profesor).grid(row=0, column=4, padx=5)
+		ttk.Button(btns, text='Turnos del agente', command=self._gestionar_turnos_profesor).grid(row=0, column=4, padx=5)
 
 		# Selección en tabla
 		self.tree_profesores.bind('<<TreeviewSelect>>', self._on_select_profesor)
@@ -1069,20 +1069,20 @@ class App(tk.Tk):
 	def _abrir_ventana_banca_profesor(self, profesor_id):
 		win = tk.Toplevel(self)
 		win.configure(bg='#f4f6fa')
-		win.title('Materias asignadas al profesor')
+		win.title('Obligaciones del agente')
 		win.geometry('550x450')
 		win.minsize(550, 450)
 		win.transient(self)
 		win.grab_set()
 		win.focus_force()
-		ttk.Label(win, text='Materias asignadas y horas ocupadas', font=('Arial', 12)).pack(pady=8)
+		ttk.Label(win, text='Obligaciones asignadas y horas ocupadas', font=('Arial', 12)).pack(pady=8)
 
 		# Tabla de banca con frame para expansión
 		frame_tabla = ttk.Frame(win)
 		frame_tabla.pack(pady=5, padx=10, fill='both', expand=True)
 		
-		tree_banca = ttk.Treeview(frame_tabla, columns=('Materia', 'Horas'), show='headings')
-		tree_banca.heading('Materia', text='Materia')
+		tree_banca = ttk.Treeview(frame_tabla, columns=('Obligación', 'Horas'), show='headings')
+		tree_banca.heading('Obligación', text='Obligación')
 		tree_banca.heading('Horas', text='Horas asignadas')
 		tree_banca.pack(side='left', fill='both', expand=True)
 		
@@ -1102,7 +1102,7 @@ class App(tk.Tk):
 		# Formulario para asignar materia
 		form = ttk.Frame(win)
 		form.pack(pady=5)
-		ttk.Label(form, text='Materia:').grid(row=0, column=0, padx=5, pady=2)
+		ttk.Label(form, text='Obligación:').grid(row=0, column=0, padx=5, pady=2)
 		materias = obtener_materias()
 		materia_nombres = [m['nombre'] for m in materias]
 		materia_ids = {m['nombre']: m['id'] for m in materias}
@@ -1141,9 +1141,9 @@ class App(tk.Tk):
 
 		btns = ttk.Frame(win)
 		btns.pack(pady=5)
-		btn_agregar = ttk.Button(btns, text='Agregar materia', command=agregar_materia)
+		btn_agregar = ttk.Button(btns, text='Agregar obligación', command=agregar_materia)
 		btn_agregar.grid(row=0, column=0, padx=5)
-		btn_eliminar = ttk.Button(btns, text='Eliminar materia', command=eliminar_materia)
+		btn_eliminar = ttk.Button(btns, text='Eliminar obligación', command=eliminar_materia)
 		btn_eliminar.grid(row=0, column=1, padx=5)
 		# Accesibilidad con Enter
 		cb_materia.bind('<Return>', agregar_materia)
@@ -1176,7 +1176,7 @@ class App(tk.Tk):
 		self.label_total_divisiones = ttk.Label(frame_tot, text=f'Total de divisiones: {total_divisiones}')
 		self.label_total_divisiones.grid(row=0, column=0, padx=10)
 
-		# Selección de Turno, Plan, Año
+		# Selección de Turno, Plan, Curso
 		frame_sel = ttk.Frame(self.frame_principal)
 		frame_sel.pack(pady=5)
 		ttk.Label(frame_sel, text='Turno:').grid(row=0, column=0, padx=5)
@@ -1187,9 +1187,9 @@ class App(tk.Tk):
 		ttk.Label(frame_sel, text='Plan:').grid(row=0, column=2, padx=5)
 		self.cb_plan_division = ttk.Combobox(frame_sel, values=[], state='disabled')
 		self.cb_plan_division.grid(row=0, column=3, padx=5)
-		ttk.Label(frame_sel, text='Año:').grid(row=0, column=4, padx=5)
-		self.cb_anio_division = ttk.Combobox(frame_sel, values=[], state='disabled')
-		self.cb_anio_division.grid(row=0, column=5, padx=5)
+		ttk.Label(frame_sel, text='Curso:').grid(row=0, column=4, padx=5)
+		self.cb_curso_division = ttk.Combobox(frame_sel, values=[], state='disabled')
+		self.cb_curso_division.grid(row=0, column=5, padx=5)
 
 		def on_turno_selected(event=None):
 			turno_nombre = self.cb_turno_division.get()
@@ -1197,9 +1197,9 @@ class App(tk.Tk):
 				self.cb_plan_division['values'] = []
 				self.cb_plan_division.set('')
 				self.cb_plan_division.config(state='disabled')
-				self.cb_anio_division['values'] = []
-				self.cb_anio_division.set('')
-				self.cb_anio_division.config(state='disabled')
+				self.cb_curso_division['values'] = []
+				self.cb_curso_division.set('')
+				self.cb_curso_division.config(state='disabled')
 				return
 			turno_id = self.turnos_dict[turno_nombre]
 			planes = obtener_planes_de_turno(turno_id)
@@ -1207,9 +1207,9 @@ class App(tk.Tk):
 			self.cb_plan_division['values'] = list(self.planes_dict.keys())
 			self.cb_plan_division.set('')
 			self.cb_plan_division.config(state='readonly' if planes else 'disabled')
-			self.cb_anio_division['values'] = []
-			self.cb_anio_division.set('')
-			self.cb_anio_division.config(state='disabled')
+			self.cb_curso_division['values'] = []
+			self.cb_curso_division.set('')
+			self.cb_curso_division.config(state='disabled')
 			# Pasar focus a Plan
 			if planes:
 				self.cb_plan_division.focus_set()
@@ -1217,24 +1217,24 @@ class App(tk.Tk):
 		def on_plan_selected(event=None):
 			plan_nombre = self.cb_plan_division.get()
 			if not plan_nombre:
-				self.cb_anio_division['values'] = []
-				self.cb_anio_division.set('')
-				self.cb_anio_division.config(state='disabled')
+				self.cb_curso_division['values'] = []
+				self.cb_curso_division.set('')
+				self.cb_curso_division.config(state='disabled')
 				return
 			plan_id = self.planes_dict[plan_nombre]
 			anios = obtener_anios(plan_id)
-			self.cb_anio_division['values'] = [a['nombre'] for a in anios]
-			self.cb_anio_division.set('')
-			self.cb_anio_division.config(state='readonly' if anios else 'disabled')
-			# Pasar focus a Año
+			self.cb_curso_division['values'] = [a['nombre'] for a in anios]
+			self.cb_curso_division.set('')
+			self.cb_curso_division.config(state='readonly' if anios else 'disabled')
+			# Pasar focus a Curso
 			if anios:
-				self.cb_anio_division.focus_set()
+				self.cb_curso_division.focus_set()
 			self._recargar_divisiones_tree()
 		def on_anio_selected(event=None):
 			self._recargar_divisiones_tree()
 		self.cb_turno_division.bind('<<ComboboxSelected>>', on_turno_selected)
 		self.cb_plan_division.bind('<<ComboboxSelected>>', on_plan_selected)
-		self.cb_anio_division.bind('<<ComboboxSelected>>', on_anio_selected)
+		self.cb_curso_division.bind('<<ComboboxSelected>>', on_anio_selected)
 		
 		# Focus inicial en Turno
 		self.cb_turno_division.focus_set()
@@ -1242,7 +1242,7 @@ class App(tk.Tk):
 		# Tabla de divisiones usando helper
 		frame_tabla = ttk.Frame(self.frame_principal)
 		frame_tabla.pack(pady=10, fill='both', expand=True)
-		self.tree_divisiones = crear_treeview(frame_tabla, ('Turno', 'Plan', 'Año', 'División'), ('Turno', 'Plan', 'Año', 'División'))
+		self.tree_divisiones = crear_treeview(frame_tabla, ('Turno', 'Plan', 'Curso', 'División'), ('Turno', 'Plan', 'Curso', 'División'))
 		self._recargar_divisiones_tree()
 
 		# Botones
@@ -1262,7 +1262,7 @@ class App(tk.Tk):
 		# Obtener filtros seleccionados
 		turno_nombre = self.cb_turno_division.get()
 		plan_nombre = self.cb_plan_division.get()
-		anio_nombre = self.cb_anio_division.get()
+		curso_nombre = self.cb_curso_division.get()
 		
 		datos = []
 		for c in divisiones:
@@ -1275,12 +1275,12 @@ class App(tk.Tk):
 				continue
 			if plan_nombre and plan != plan_nombre:
 				continue
-			if anio_nombre and anio != anio_nombre:
+			if curso_nombre and anio != curso_nombre:
 				continue
 			
-			datos.append({'id': c['id'], 'Turno': turno, 'Plan': plan, 'Año': anio, 'División': c['nombre']})
+			datos.append({'id': c['id'], 'Turno': turno, 'Plan': plan, 'Curso': anio, 'División': c['nombre']})
 		
-		recargar_treeview(self.tree_divisiones, datos, ['Turno', 'Plan', 'Año', 'División'])
+		recargar_treeview(self.tree_divisiones, datos, ['Turno', 'Plan', 'Curso', 'División'])
 		
 		# Actualizar contador de divisiones
 		self.label_total_divisiones.config(text=f'Total de divisiones: {len(datos)}')
@@ -1291,9 +1291,10 @@ class App(tk.Tk):
 		win = tk.Toplevel(self)
 		win.configure(bg='#f4f6fa')
 		win.title('Agregar División')
-		win.geometry('450x250')
-		win.minsize(450, 250)
+		win.geometry('350x300')
+		win.minsize(350, 300)
 		win.transient(self)
+		win.resizable(False, False)
 		win.grab_set()
 		win.focus_force()
 		
@@ -1314,9 +1315,9 @@ class App(tk.Tk):
 		cb_plan = ttk.Combobox(form, values=[], state='disabled', width=25)
 		cb_plan.grid(row=1, column=1, padx=5, pady=5)
 		
-		ttk.Label(form, text='Año:').grid(row=2, column=0, padx=5, pady=5, sticky='e')
-		cb_anio = ttk.Combobox(form, values=[], state='disabled', width=25)
-		cb_anio.grid(row=2, column=1, padx=5, pady=5)
+		ttk.Label(form, text='Curso:').grid(row=2, column=0, padx=5, pady=5, sticky='e')
+		cb_curso = ttk.Combobox(form, values=[], state='disabled', width=25)
+		cb_curso.grid(row=2, column=1, padx=5, pady=5)
 		
 		ttk.Label(form, text='División:').grid(row=3, column=0, padx=5, pady=5, sticky='e')
 		entry_division = ttk.Entry(form, width=27)
@@ -1331,9 +1332,9 @@ class App(tk.Tk):
 				cb_plan['values'] = []
 				cb_plan.set('')
 				cb_plan.config(state='disabled')
-				cb_anio['values'] = []
-				cb_anio.set('')
-				cb_anio.config(state='disabled')
+				cb_curso['values'] = []
+				cb_curso.set('')
+				cb_curso.config(state='disabled')
 				return
 			turno_id = turnos_dict[turno_nombre]
 			planes = obtener_planes_de_turno(turno_id)
@@ -1342,35 +1343,35 @@ class App(tk.Tk):
 			cb_plan['values'] = list(planes_dict.keys())
 			cb_plan.set('')
 			cb_plan.config(state='readonly' if planes else 'disabled')
-			cb_anio['values'] = []
-			cb_anio.set('')
-			cb_anio.config(state='disabled')
+			cb_curso['values'] = []
+			cb_curso.set('')
+			cb_curso.config(state='disabled')
 			if planes:
 				cb_plan.focus_set()
 		
 		def on_plan_selected(event=None):
 			plan_nombre = cb_plan.get()
 			if not plan_nombre:
-				cb_anio['values'] = []
-				cb_anio.set('')
-				cb_anio.config(state='disabled')
+				cb_curso['values'] = []
+				cb_curso.set('')
+				cb_curso.config(state='disabled')
 				return
 			plan_id = planes_dict[plan_nombre]
 			anios = obtener_anios(plan_id)
 			anios_list.clear()
 			anios_list.extend(anios)
-			cb_anio['values'] = [a['nombre'] for a in anios]
-			cb_anio.set('')
-			cb_anio.config(state='readonly' if anios else 'disabled')
+			cb_curso['values'] = [a['nombre'] for a in anios]
+			cb_curso.set('')
+			cb_curso.config(state='readonly' if anios else 'disabled')
 			if anios:
-				cb_anio.focus_set()
+				cb_curso.focus_set()
 		
 		def on_anio_selected(event=None):
 			entry_division.focus_set()
 		
 		cb_turno.bind('<<ComboboxSelected>>', on_turno_selected)
 		cb_plan.bind('<<ComboboxSelected>>', on_plan_selected)
-		cb_anio.bind('<<ComboboxSelected>>', on_anio_selected)
+		cb_curso.bind('<<ComboboxSelected>>', on_anio_selected)
 		
 		def guardar(event=None):
 			nombre = entry_division.get().strip()
@@ -1379,15 +1380,15 @@ class App(tk.Tk):
 				return
 			turno_nombre = cb_turno.get()
 			plan_nombre = cb_plan.get()
-			anio_nombre = cb_anio.get()
-			if not (turno_nombre and plan_nombre and anio_nombre):
-				messagebox.showerror('Error', 'Seleccione turno, plan y año.', parent=win)
+			curso_nombre = cb_curso.get()
+			if not (turno_nombre and plan_nombre and curso_nombre):
+				messagebox.showerror('Error', 'Seleccione turno, plan y curso.', parent=win)
 				return
 			turno_id = turnos_dict[turno_nombre]
 			plan_id = planes_dict[plan_nombre]
-			anio_id = next((a['id'] for a in anios_list if a['nombre'] == anio_nombre), None)
+			anio_id = next((a['id'] for a in anios_list if a['nombre'] == curso_nombre), None)
 			if not anio_id:
-				messagebox.showerror('Error', 'Año inválido.', parent=win)
+				messagebox.showerror('Error', 'Curso inválido.', parent=win)
 				return
 			try:
 				conn = get_connection()
@@ -1400,7 +1401,7 @@ class App(tk.Tk):
 				win.destroy()
 			except Exception as e:
 				if 'UNIQUE constraint failed' in str(e):
-					messagebox.showerror('Error', 'Ya existe una división con ese nombre, turno, plan y año.', parent=win)
+					messagebox.showerror('Error', 'Ya existe una división con ese nombre, turno, plan y curso.', parent=win)
 				else:
 					messagebox.showerror('Error', str(e), parent=win)
 		
@@ -1427,9 +1428,10 @@ class App(tk.Tk):
 		win = tk.Toplevel(self)
 		win.configure(bg='#f4f6fa')
 		win.title('Editar División')
-		win.geometry('450x250')
-		win.minsize(450, 250)
+		win.geometry('350x300')
+		win.minsize(350, 300)
 		win.transient(self)
+		win.resizable(False, False)
 		win.grab_set()
 		win.focus_force()
 		
@@ -1449,9 +1451,9 @@ class App(tk.Tk):
 		cb_plan = ttk.Combobox(form, values=[], state='disabled', width=25)
 		cb_plan.grid(row=1, column=1, padx=5, pady=5)
 		
-		ttk.Label(form, text='Año:').grid(row=2, column=0, padx=5, pady=5, sticky='e')
-		cb_anio = ttk.Combobox(form, values=[], state='disabled', width=25)
-		cb_anio.grid(row=2, column=1, padx=5, pady=5)
+		ttk.Label(form, text='Curso:').grid(row=2, column=0, padx=5, pady=5, sticky='e')
+		cb_curso = ttk.Combobox(form, values=[], state='disabled', width=25)
+		cb_curso.grid(row=2, column=1, padx=5, pady=5)
 		
 		ttk.Label(form, text='División:').grid(row=3, column=0, padx=5, pady=5, sticky='e')
 		entry_division = ttk.Entry(form, width=27)
@@ -1467,9 +1469,9 @@ class App(tk.Tk):
 				cb_plan['values'] = []
 				cb_plan.set('')
 				cb_plan.config(state='disabled')
-				cb_anio['values'] = []
-				cb_anio.set('')
-				cb_anio.config(state='disabled')
+				cb_curso['values'] = []
+				cb_curso.set('')
+				cb_curso.config(state='disabled')
 				return
 			turno_id = turnos_dict[turno_nombre]
 			planes = obtener_planes_de_turno(turno_id)
@@ -1485,30 +1487,30 @@ class App(tk.Tk):
 					cb_plan.event_generate('<<ComboboxSelected>>')
 			else:
 				cb_plan.set('')
-				cb_anio['values'] = []
-				cb_anio.set('')
-				cb_anio.config(state='disabled')
+				cb_curso['values'] = []
+				cb_curso.set('')
+				cb_curso.config(state='disabled')
 		
 		def on_plan_selected(event=None):
 			plan_nombre = cb_plan.get()
 			if not plan_nombre:
-				cb_anio['values'] = []
-				cb_anio.set('')
-				cb_anio.config(state='disabled')
+				cb_curso['values'] = []
+				cb_curso.set('')
+				cb_curso.config(state='disabled')
 				return
 			plan_id = planes_dict[plan_nombre]
 			anios = obtener_anios(plan_id)
 			anios_list.clear()
 			anios_list.extend(anios)
-			cb_anio['values'] = [a['nombre'] for a in anios]
-			cb_anio.config(state='readonly' if anios else 'disabled')
+			cb_curso['values'] = [a['nombre'] for a in anios]
+			cb_curso.config(state='readonly' if anios else 'disabled')
 			# Mantener selección si es el mismo plan
 			if event is None:
 				anio_actual = next((a['nombre'] for a in obtener_anios(division_actual['plan_id']) if a['id'] == division_actual['anio_id']), '')
 				if anio_actual in [a['nombre'] for a in anios]:
-					cb_anio.set(anio_actual)
+					cb_curso.set(anio_actual)
 			else:
-				cb_anio.set('')
+				cb_curso.set('')
 		
 		cb_turno.bind('<<ComboboxSelected>>', on_turno_selected)
 		cb_plan.bind('<<ComboboxSelected>>', on_plan_selected)
@@ -1525,15 +1527,15 @@ class App(tk.Tk):
 				return
 			turno_nombre = cb_turno.get()
 			plan_nombre = cb_plan.get()
-			anio_nombre = cb_anio.get()
-			if not (turno_nombre and plan_nombre and anio_nombre):
+			curso_nombre = cb_curso.get()
+			if not (turno_nombre and plan_nombre and curso_nombre):
 				messagebox.showerror('Error', 'Complete todos los campos.', parent=win)
 				return
 			turno_id = turnos_dict[turno_nombre]
 			plan_id = planes_dict[plan_nombre]
-			anio_id = next((a['id'] for a in anios_list if a['nombre'] == anio_nombre), None)
+			anio_id = next((a['id'] for a in anios_list if a['nombre'] == curso_nombre), None)
 			if not anio_id:
-				messagebox.showerror('Error', 'Año inválido.', parent=win)
+				messagebox.showerror('Error', 'Curso inválido.', parent=win)
 				return
 			try:
 				conn = get_connection()
@@ -1546,7 +1548,7 @@ class App(tk.Tk):
 				win.destroy()
 			except Exception as e:
 				if 'UNIQUE constraint failed' in str(e):
-					messagebox.showerror('Error', 'Ya existe una división con ese nombre, turno, plan y año.', parent=win)
+					messagebox.showerror('Error', 'Ya existe una división con ese nombre, turno, plan y curso.', parent=win)
 				else:
 					messagebox.showerror('Error', str(e), parent=win)
 		
@@ -1571,7 +1573,7 @@ class App(tk.Tk):
 		self.limpiar_frame()
 		ttk.Label(self.frame_principal, text='Gestión de Horarios por Curso', font=('Arial', 14)).pack(pady=10)
 
-		# Selección paso a paso: Turno → Plan → Año → División
+		# Selección paso a paso: Turno → Plan → Curso → División
 		frame_sel = ttk.Frame(self.frame_principal)
 		frame_sel.pack(pady=5)
 		ttk.Label(frame_sel, text='Turno:').grid(row=0, column=0, padx=5)
@@ -1584,7 +1586,7 @@ class App(tk.Tk):
 		ttk.Label(frame_sel, text='Plan:').grid(row=0, column=2, padx=5)
 		self.cb_plan_horario = ttk.Combobox(frame_sel, values=[], state='disabled')
 		self.cb_plan_horario.grid(row=0, column=3, padx=5)
-		ttk.Label(frame_sel, text='Año:').grid(row=0, column=4, padx=5)
+		ttk.Label(frame_sel, text='Curso:').grid(row=0, column=4, padx=5)
 		self.cb_anio_horario = ttk.Combobox(frame_sel, values=[], state='disabled')
 		self.cb_anio_horario.grid(row=0, column=5, padx=5)
 		ttk.Label(frame_sel, text='División:').grid(row=0, column=6, padx=5)
@@ -1645,7 +1647,7 @@ class App(tk.Tk):
 				self.cb_division_horario.config(state='disabled')
 				return
 			anio_id = self.anios_dict_horario[anio_nombre]
-			# Filtrar divisiones por turno, plan y año
+			# Filtrar divisiones por turno, plan y curso
 			turno_nombre = self.cb_turno_horario.get()
 			plan_nombre = self.cb_plan_horario.get()
 			if not (turno_nombre and plan_nombre):
@@ -1856,8 +1858,8 @@ class App(tk.Tk):
 		entry_inicio.bind('<KeyRelease>', lambda e: autoinsert_colon(e, entry_inicio, entry_fin))
 		entry_fin.bind('<KeyRelease>', lambda e: autoinsert_colon(e, entry_fin, None))
 
-		# Materia
-		ttk.Label(form, text='Materia:', background='#f4f6fa').grid(row=2, column=0, padx=5, pady=4, sticky='e')
+		# Obligación
+		ttk.Label(form, text='Obligación:', background='#f4f6fa').grid(row=2, column=0, padx=5, pady=4, sticky='e')
 		materias = obtener_materias()
 		materia_nombres = [m['nombre'] for m in materias]
 		materia_ids = {m['nombre']: m['id'] for m in materias}
@@ -2332,12 +2334,12 @@ class App(tk.Tk):
 		entry_inicio.bind('<KeyRelease>', lambda e: autoinsert_colon(e, entry_inicio, entry_fin))
 		entry_fin.bind('<KeyRelease>', lambda e: autoinsert_colon(e, entry_fin, None))
 
-		# Materia - Obtener solo las materias que tiene asignadas el profesor
-		ttk.Label(form, text='Materia:', background='#f4f6fa').grid(row=2, column=0, padx=5, pady=4, sticky='e')
+		# Obligación - Obtener solo las obligaciones que tiene asignadas el profesor
+		ttk.Label(form, text='Obligación:', background='#f4f6fa').grid(row=2, column=0, padx=5, pady=4, sticky='e')
 		banca = obtener_banca_profesor(profesor_id)
 		materia_nombres = [b['materia'] for b in banca]
 		
-		# Necesitamos obtener los IDs de las materias
+		# Necesitamos obtener los IDs de las obligaciones
 		todas_materias = obtener_materias()
 		materia_ids = {m['nombre']: m['id'] for m in todas_materias}
 		
@@ -2816,8 +2818,8 @@ class App(tk.Tk):
 		btns.pack(pady=5)
 		ttk.Button(btns, text='Agregar', command=self._agregar_plan).grid(row=0, column=0, padx=5)
 		ttk.Button(btns, text='Eliminar', command=self._eliminar_plan).grid(row=0, column=1, padx=5)
-		ttk.Button(btns, text='Materias del plan', command=self._gestionar_materias_plan).grid(row=0, column=2, padx=5)
-		ttk.Button(btns, text='Años del plan', command=self._gestionar_anios_plan).grid(row=0, column=3, padx=5)
+		ttk.Button(btns, text='Materias/Obligaciones del plan', command=self._gestionar_materias_plan).grid(row=0, column=2, padx=5)
+		ttk.Button(btns, text='Cursos del plan', command=self._gestionar_anios_plan).grid(row=0, column=3, padx=5)
 		self.tree_planes.bind('<<TreeviewSelect>>', self._on_select_plan)
 		self.plan_seleccionado_id = None
 
@@ -2863,7 +2865,7 @@ class App(tk.Tk):
 			return
 		win = tk.Toplevel(self)
 		win.configure(bg='#f4f6fa')
-		win.title('Materias del plan')
+		win.title('Materias/Obligaciones del plan')
 		win.geometry('450x480')
 		win.minsize(400, 420)
 		win.transient(self)
@@ -2928,8 +2930,8 @@ class App(tk.Tk):
 				messagebox.showerror('Error', str(e))
 		btns = ttk.Frame(win)
 		btns.pack(pady=5)
-		ttk.Button(btns, text='Agregar materia', command=agregar).pack(side='left', padx=5)
-		ttk.Button(btns, text='Quitar materia', command=quitar).pack(side='left', padx=5)
+		ttk.Button(btns, text='Agregar obligación', command=agregar).pack(side='left', padx=5)
+		ttk.Button(btns, text='Quitar obligación', command=quitar).pack(side='left', padx=5)
 		# La accesibilidad con Enter se configura dentro de la función agregar
 
 
@@ -3075,7 +3077,7 @@ class App(tk.Tk):
 			return
 		win = tk.Toplevel(self)
 		win.configure(bg='#f4f6fa')
-		win.title('Años del plan')
+		win.title('Cursos del plan')
 		win.geometry('450x480')
 		win.minsize(400, 420)
 		win.transient(self)
@@ -3099,7 +3101,7 @@ class App(tk.Tk):
 		def agregar():
 			win2 = tk.Toplevel(win)
 			win2.configure(bg='#f4f6fa')
-			win2.title('Agregar año')
+			win2.title('Agregar curso')
 			win2.geometry('350x180')
 			win2.minsize(320, 160)
 			ttk.Label(win2, text='Nombre:').pack(pady=5)
@@ -3207,13 +3209,13 @@ class App(tk.Tk):
 					messagebox.showerror('Error', str(e))
 			btns3 = ttk.Frame(win3)
 			btns3.pack(pady=5)
-			ttk.Button(btns3, text='Agregar materia', command=agregar3).pack(side='left', padx=5)
-			ttk.Button(btns3, text='Quitar materia', command=quitar3).pack(side='left', padx=5)
+			ttk.Button(btns3, text='Agregar obligación', command=agregar3).pack(side='left', padx=5)
+			ttk.Button(btns3, text='Quitar obligación', command=quitar3).pack(side='left', padx=5)
 		btns = ttk.Frame(win)
 		btns.pack(pady=5)
-		ttk.Button(btns, text='Agregar año', command=agregar).pack(side='left', padx=5)
-		ttk.Button(btns, text='Quitar año', command=quitar).pack(side='left', padx=5)
-		ttk.Button(btns, text='Materias del año', command=materias).pack(side='left', padx=5)
+		ttk.Button(btns, text='Agregar curso', command=agregar).pack(side='left', padx=5)
+		ttk.Button(btns, text='Quitar curso', command=quitar).pack(side='left', padx=5)
+		ttk.Button(btns, text='Materias del curso', command=materias).pack(side='left', padx=5)
 
 	def _gestionar_turnos_profesor(self):
 		if not self.profesor_seleccionado_id:
@@ -3222,7 +3224,7 @@ class App(tk.Tk):
 		profesor_id = self.profesor_seleccionado_id
 		win = tk.Toplevel(self)
 		win.configure(bg='#f4f6fa')
-		win.title('Turnos del profesor')
+		win.title('Turnos del agente')
 		win.geometry('450x500')
 		win.minsize(400, 450)
 		win.transient(self)

@@ -23,12 +23,24 @@ def aplicar_estilos_ttk():
 # MODELOS Y LOGICA DE DATOS PARA GESTION DE HORARIOS ESCOLARES
 import sqlite3
 import os
+import sys
 from typing import List, Optional, Dict, Any
 
 
 # Inicialización de la base de datos
-# Usar ruta absoluta basada en la ubicación del script
-DB_DIR = os.path.dirname(os.path.abspath(__file__))
+# Detectar si estamos ejecutando desde PyInstaller o desde script Python
+def get_base_path():
+	"""Obtiene la ruta base de la aplicación.
+	Funciona tanto en desarrollo como en ejecutable compilado con PyInstaller."""
+	if getattr(sys, 'frozen', False):
+		# Ejecutando desde PyInstaller
+		# sys.executable es la ruta del .exe
+		return os.path.dirname(sys.executable)
+	else:
+		# Ejecutando desde script Python normal
+		return os.path.dirname(os.path.abspath(__file__))
+
+DB_DIR = get_base_path()
 DB_NAME = os.path.join(DB_DIR, 'horarios.db')
 
 def get_connection():

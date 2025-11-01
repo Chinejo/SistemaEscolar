@@ -47,49 +47,51 @@ Este documento mapea cada función y clase del archivo original `Horarios_v0.9.p
 ### Materias
 | Función Original | Nueva Ubicación | Tipo |
 |-----------------|-----------------|------|
-| `crear_materia()` | `repositories/materia_repository.py → MateriaRepository.crear()` | 🔵 |
-| `obtener_materias()` | `repositories/materia_repository.py → MateriaRepository.obtener_todas()` | 🔵 |
-| `actualizar_materia()` | `repositories/materia_repository.py → MateriaRepository.actualizar()` | 🔵 |
-| `eliminar_materia()` | `repositories/materia_repository.py → MateriaRepository.eliminar()` | 🔵 |
+| `crear_materia()` | `services/materia_service.py → MateriaService.crear()` | � |
+| `obtener_materias()` | `services/materia_service.py → MateriaService.listar()` | � |
+| `actualizar_materia()` | `services/materia_service.py → MateriaService.actualizar()` | � |
+| `eliminar_materia()` | `services/materia_service.py → MateriaService.eliminar()` | � |
 | - | `models/materia.py → class Materia` | 🔵 |
+| - | `repositories/materia_repository.py → MateriaRepository` | 🔵 |
 
 ### Profesores
 | Función Original | Nueva Ubicación | Tipo |
 |-----------------|-----------------|------|
-| `crear_profesor()` | `repositories/profesor_repository.py → ProfesorRepository.crear()` | 🔵 |
-| `obtener_profesores()` | `repositories/profesor_repository.py → ProfesorRepository.obtener_todos()` | 🔵 |
-| `actualizar_profesor()` | `repositories/profesor_repository.py → ProfesorRepository.actualizar()` | 🔵 |
-| `eliminar_profesor()` | `repositories/profesor_repository.py → ProfesorRepository.eliminar()` | 🔵 |
-| `asignar_turno_a_profesor()` | `repositories/profesor_repository.py → ProfesorRepository.asignar_turno()` | 🔵 |
-| `quitar_turno_a_profesor()` | `repositories/profesor_repository.py → ProfesorRepository.quitar_turno()` | 🔵 |
-| `obtener_turnos_de_profesor()` | `repositories/profesor_repository.py → ProfesorRepository.obtener_turnos()` | 🔵 |
-| `obtener_profesores_por_turno()` | `repositories/profesor_repository.py → ProfesorRepository.obtener_por_turno()` | 🔵 |
-| `asignar_banca_profesor()` | `repositories/profesor_repository.py → ProfesorRepository.asignar_banca()` | 🔵 |
-| `obtener_banca_profesor()` | `repositories/profesor_repository.py → ProfesorRepository.obtener_banca()` | 🔵 |
-| `actualizar_banca_profesor()` | `repositories/profesor_repository.py → ProfesorRepository.actualizar_banca()` | 🔵 |
-| `eliminar_banca_profesor()` | `repositories/profesor_repository.py → ProfesorRepository.eliminar_banca()` | 🔵 |
+| `crear_profesor()` | `services/profesor_service.py → ProfesorService.crear()` | � |
+| `obtener_profesores()` | `services/profesor_service.py → ProfesorService.listar()` | � |
+| `actualizar_profesor()` | `services/profesor_service.py → ProfesorService.actualizar()` | � |
+| `eliminar_profesor()` | `services/profesor_service.py → ProfesorService.eliminar()` | � |
+| `asignar_turno_a_profesor()` | `services/profesor_service.py → ProfesorService.asignar_turno()` | � |
+| `quitar_turno_a_profesor()` | `services/profesor_service.py → ProfesorService.quitar_turno()` | � |
+| `obtener_turnos_de_profesor()` | `services/profesor_service.py → ProfesorService.obtener_turnos()` | � |
+| `obtener_profesores_por_turno()` | `services/profesor_service.py → ProfesorService.obtener_por_turno()` | � |
+| `asignar_banca_profesor()` | `services/profesor_service.py → ProfesorService.asignar_banca()` | � |
+| `obtener_banca_profesor()` | `services/profesor_service.py → ProfesorService.obtener_banca()` | � |
+| `actualizar_banca_profesor()` | `services/profesor_service.py → ProfesorService.actualizar_banca()` | � |
+| `eliminar_banca_profesor()` | `services/profesor_service.py → ProfesorService.eliminar_banca()` | � |
 | - | `models/profesor.py → class Profesor` | 🔵 |
+| - | `repositories/profesor_repository.py → ProfesorRepository` | 🔵 |
 
 ### Años
 | Función Original | Nueva Ubicación | Tipo |
 |-----------------|-----------------|------|
-| `crear_anio()` | `repositories/anio_repository.py → AnioRepository.crear()` | 🔵 |
-| `obtener_anios()` | `repositories/anio_repository.py → AnioRepository.obtener_por_plan()` | 🔵 |
-| `eliminar_anio()` | `repositories/anio_repository.py → AnioRepository.eliminar()` | 🔵 |
-| `agregar_materia_a_anio()` | `repositories/anio_repository.py → AnioRepository.agregar_materia()` | 🔵 |
-| `quitar_materia_de_anio()` | `repositories/anio_repository.py → AnioRepository.quitar_materia()` | 🔵 |
-| `obtener_materias_de_anio()` | `repositories/anio_repository.py → AnioRepository.obtener_materias()` | 🔵 |
+| `crear_anio()` | `services/anio_service.py → AnioService.crear()` | 🔵 |
+| `obtener_anios()` | `services/anio_service.py → AnioService.listar_por_plan()` | 🔵 |
+| `eliminar_anio()` | `services/anio_service.py → AnioService.eliminar()` | 🔵 |
+| `agregar_materia_a_anio()` | `services/anio_service.py → AnioService.agregar_materia()` | 🔵 |
+| `quitar_materia_de_anio()` | `services/anio_service.py → AnioService.quitar_materia()` | 🔵 |
+| `obtener_materias_de_anio()` | `services/anio_service.py → AnioService.obtener_materias()` | 🔵 |
 | - | `models/anio.py → class Anio` | 🔵 |
 
 ### Planes de Estudio
 | Función Original | Nueva Ubicación | Tipo |
 |-----------------|-----------------|------|
-| `crear_plan()` | `repositories/plan_repository.py → PlanRepository.crear()` | 🔵 |
-| `obtener_planes()` | `repositories/plan_repository.py → PlanRepository.obtener_todos()` | 🔵 |
-| `eliminar_plan()` | `repositories/plan_repository.py → PlanRepository.eliminar()` | 🔵 |
-| `agregar_materia_a_plan()` | `repositories/plan_repository.py → PlanRepository.agregar_materia()` | 🔵 |
-| `quitar_materia_de_plan()` | `repositories/plan_repository.py → PlanRepository.quitar_materia()` | 🔵 |
-| `obtener_materias_de_plan()` | `repositories/plan_repository.py → PlanRepository.obtener_materias()` | 🔵 |
+| `crear_plan()` | `services/plan_service.py → PlanService.crear()` | 🔵 |
+| `obtener_planes()` | `services/plan_service.py → PlanService.listar()` | 🔵 |
+| `eliminar_plan()` | `services/plan_service.py → PlanService.eliminar()` | 🔵 |
+| `agregar_materia_a_plan()` | `services/plan_service.py → PlanService.agregar_materia()` | 🔵 |
+| `quitar_materia_de_plan()` | `services/plan_service.py → PlanService.quitar_materia()` | 🔵 |
+| `obtener_materias_de_plan()` | `services/plan_service.py → PlanService.obtener_materias()` | 🔵 |
 | - | `models/plan.py → class Plan` | 🔵 |
 
 ### Turnos
@@ -109,23 +111,24 @@ Este documento mapea cada función y clase del archivo original `Horarios_v0.9.p
 ### Divisiones
 | Función Original | Nueva Ubicación | Tipo |
 |-----------------|-----------------|------|
-| `crear_division()` | `repositories/division_repository.py → DivisionRepository.crear()` | 🔵 |
-| `obtener_divisiones()` | `repositories/division_repository.py → DivisionRepository.obtener_todas()` | 🔵 |
-| `actualizar_division()` | `repositories/division_repository.py → DivisionRepository.actualizar()` | 🔵 |
-| `eliminar_division()` | `repositories/division_repository.py → DivisionRepository.eliminar()` | 🔵 |
+| `crear_division()` | `services/division_service.py → DivisionService.crear()` | 🔵 |
+| `obtener_divisiones()` | `services/division_service.py → DivisionService.listar()` | 🔵 |
+| `actualizar_division()` | `services/division_service.py → DivisionService.actualizar_nombre()` | 🔵 |
+| `eliminar_division()` | `services/division_service.py → DivisionService.eliminar()` | 🔵 |
 | - | `models/division.py → class Division` | 🔵 |
 
 ### Horarios
 | Función Original | Nueva Ubicación | Tipo |
 |-----------------|-----------------|------|
-| `crear_horario()` | `repositories/horario_repository.py → HorarioRepository.crear()` | 🟡 |
-| `obtener_horarios()` | `repositories/horario_repository.py → HorarioRepository.obtener_por_division()` | 🔵 |
-| `eliminar_horario()` | `repositories/horario_repository.py → HorarioRepository.eliminar()` | 🔵 |
-| `crear_horario_profesor()` | `repositories/horario_repository.py → HorarioRepository.crear_profesor()` | 🟡 |
-| `obtener_horarios_profesor()` | `repositories/horario_repository.py → HorarioRepository.obtener_por_profesor()` | 🔵 |
-| `eliminar_horario_profesor()` | `repositories/horario_repository.py → HorarioRepository.eliminar_profesor()` | 🔵 |
+| `crear_horario()` | `services/horario_service.py → HorarioService.crear_para_division()` | 🟡 |
+| `obtener_horarios()` | `services/horario_service.py → HorarioService.obtener_por_division()` | � |
+| `eliminar_horario()` | `services/horario_service.py → HorarioService.eliminar()` | � |
+| `crear_horario_profesor()` | `services/horario_service.py → HorarioService.crear_para_profesor()` | 🟡 |
+| `obtener_horarios_profesor()` | `services/horario_service.py → HorarioService.obtener_por_profesor()` | � |
+| `eliminar_horario_profesor()` | `services/horario_service.py → HorarioService.eliminar()` | � |
 | - | `models/horario.py → class Horario` | 🔵 |
 | - | `services/horario_service.py → HorarioService` (validaciones) | 🔵 |
+| - | `repositories/horario_repository.py → HorarioRepository` | 🔵 |
 
 ### Utilidades
 | Función Original | Nueva Ubicación | Tipo |
@@ -147,25 +150,26 @@ Este documento mapea cada función y clase del archivo original `Horarios_v0.9.p
 | Método Original (class App) | Nueva Ubicación | Tipo |
 |----------------------------|-----------------|------|
 | `__init__()` | `ui/main_window.py → MainWindow.__init__()` | 🟡 |
-| `crear_menu()` | `ui/main_window.py → MainWindow.crear_menu()` | 🟢 |
-| `limpiar_frame()` | `ui/main_window.py → MainWindow.limpiar_frame()` | 🟢 |
+| `crear_menu()` | `ui/main_window.py → MainWindow._build_menu()` | � |
+| `limpiar_frame()` | `utils/helpers.py → clear_container()` | � |
 
 ### Vistas - Materias
 | Método Original | Nueva Ubicación | Tipo |
 |-----------------|-----------------|------|
-| `mostrar_materias()` | `ui/views/materias_view.py → MateriasView.mostrar()` | 🔵 |
+| `mostrar_materias()` | `ui/views/materias_view.py → MateriasView.refresh()` | � |
 | `_agregar_materia()` | `ui/views/materias_view.py → MateriasView._agregar()` | 🔵 |
 | `_editar_materia()` | `ui/views/materias_view.py → MateriasView._editar()` | 🔵 |
 | `_eliminar_materia()` | `ui/views/materias_view.py → MateriasView._eliminar()` | 🔵 |
-| `_cargar_materias_en_tree()` | `ui/views/materias_view.py → MateriasView._recargar_tree()` | 🔵 |
-| `_on_select_materia()` | `ui/views/materias_view.py → MateriasView._on_select()` | 🔵 |
+| `_cargar_materias_en_tree()` | `ui/views/materias_view.py → MateriasView._apply_filter()` | � |
+| `_on_select_materia()` | `ui/views/materias_view.py → MateriasView._on_tree_select()` | 🔵 |
 
 ### Vistas - Profesores
 | Método Original | Nueva Ubicación | Tipo |
 |-----------------|-----------------|------|
 | `mostrar_profesores()` | `ui/views/profesores_view.py → ProfesoresView.mostrar()` | 🔵 |
-| `_abrir_asignacion_turnos()` | `ui/views/profesores_view.py → ProfesoresView._abrir_asignacion_turnos()` | 🔵 |
-| `_abrir_banca_materias()` | `ui/views/profesores_view.py → ProfesoresView._abrir_banca_materias()` | 🔵 |
+| `_gestionar_turnos_profesor()` | `ui/views/profesores_view.py → ProfesoresView._gestionar_turnos_profesor()` | 🔵 |
+| `_gestionar_banca_profesor()` | `ui/views/profesores_view.py → ProfesoresView._gestionar_banca_profesor()` | 🔵 |
+| `_abrir_ventana_banca_profesor()` | `ui/views/profesores_view.py → ProfesoresView._abrir_ventana_banca_profesor()` | 🔵 |
 | `_agregar_profesor()` | `ui/views/profesores_view.py → ProfesoresView._agregar()` | 🔵 |
 | `_editar_profesor()` | `ui/views/profesores_view.py → ProfesoresView._editar()` | 🔵 |
 | `_eliminar_profesor()` | `ui/views/profesores_view.py → ProfesoresView._eliminar()` | 🔵 |
@@ -175,16 +179,18 @@ Este documento mapea cada función y clase del archivo original `Horarios_v0.9.p
 | Método Original | Nueva Ubicación | Tipo |
 |-----------------|-----------------|------|
 | `mostrar_turnos()` | `ui/views/turnos_view.py → TurnosView.mostrar()` | 🔵 |
-| `_abrir_asignacion_planes_turno()` | `ui/views/turnos_view.py → TurnosView._abrir_asignacion_planes()` | 🔵 |
-| `_abrir_configurar_horas()` | `ui/views/turnos_view.py → TurnosView._abrir_configurar_horas()` | 🔵 |
+| `_gestionar_planes_turno()` | `ui/views/turnos_view.py → TurnosView._gestionar_planes_turno()` | 🔵 |
+| `_configurar_horas_por_turno()` | `ui/views/turnos_view.py → TurnosView._configurar_horas_por_turno()` | 🔵 |
 | Métodos CRUD de turnos | `ui/views/turnos_view.py → TurnosView._*()` | 🔵 |
 
 ### Vistas - Planes
 | Método Original | Nueva Ubicación | Tipo |
 |-----------------|-----------------|------|
 | `mostrar_planes()` | `ui/views/planes_view.py → PlanesView.mostrar()` | 🔵 |
-| `_abrir_asignacion_materias_plan()` | `ui/views/planes_view.py → PlanesView._abrir_asignacion_materias()` | 🔵 |
+| `_gestionar_materias_plan()` | `ui/views/planes_view.py → PlanesView._gestionar_materias_plan()` | 🔵 |
+| `_gestionar_anios_plan()` | `ui/views/planes_view.py → PlanesView._gestionar_anios_plan()` | 🔵 |
 | Métodos CRUD de planes | `ui/views/planes_view.py → PlanesView._*()` | 🔵 |
+| `_cargar_planes_en_tree()` | `ui/views/planes_view.py → PlanesView._recargar_tree()` | 🔵 |
 
 ### Vistas - Años
 | Método Original | Nueva Ubicación | Tipo |
@@ -254,7 +260,7 @@ Este documento mapea cada función y clase del archivo original `Horarios_v0.9.p
 
 5. **Constantes:** Días de semana, espacios horarios → `config.py`
 
-6. **Decoradores:** El decorador `@db_operation` se mantiene igual pero en su propio módulo
+6. **Decoradores:** El decorador `@db_operation` se mantiene en `database/connection.py`, ahora compatible con métodos de instancia gracias a la inyección automática de la conexión después de `self`
 
 ---
 

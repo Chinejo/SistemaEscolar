@@ -214,11 +214,15 @@ Los servicios contienen la lógica de negocio y orquestan los repositorios.
 **Líneas estimadas:** ~150 líneas
 
 #### 6.2 Servicios por entidad
-- `materia_service.py`: ~80 líneas
-- `profesor_service.py`: ~120 líneas
-- `horario_service.py`: ~200 líneas (más complejo)
+- `materia_service.py`: ~80 líneas ✅
+- `profesor_service.py`: ~120 líneas ✅
+- `horario_service.py`: ~200 líneas ✅
+- `turno_service.py`: ~120 líneas ✅
+- `plan_service.py`: ~120 líneas ✅
+- `anio_service.py`: ~140 líneas ✅
+- `division_service.py`: ~120 líneas ✅
 
-**Total services:** ~550 líneas
+**Total services:** ~920 líneas
 
 ### 7. **ui/** (Interfaz de Usuario)
 
@@ -313,55 +317,54 @@ Cada vista es responsable de una pantalla completa:
 
 | Módulo | Líneas Estimadas | % del Total |
 |--------|-----------------|-------------|
-| main.py | 30 | 0.9% |
-| config.py | 50 | 1.5% |
-| database/ | 240 | 7.3% |
-| models/ | 300 | 9.1% |
-| repositories/ | 870 | 26.3% |
-| services/ | 550 | 16.6% |
-| ui/ | 2,630 | 79.5% |
-| utils/ | 180 | 5.4% |
-| **TOTAL** | **~3,850** | **116%** |
-
-*Nota: El total es mayor que el original debido a imports, docstrings y estructura de clases.*
+| main.py | 30 | 0.6% |
+| config.py | 50 | 1.0% |
+| database/ | 240 | 4.9% |
+| models/ | 300 | 6.2% |
+| repositories/ | 870 | 17.9% |
+| services/ | 670 | 13.8% |
+| ui/ | 2,630 | 54.2% |
+| utils/ | 180 | 3.7% |
+| **TOTAL** | **~4,970** | **150%** |
+*Nota: El total estimado supera al original debido a imports, docstrings y estructura de clases adicionales.*
 
 ## 🔄 Orden de Implementación Recomendado
 
 ### Fase 1: Fundamentos (Base)
-1. ✅ Crear estructura de carpetas
-2. ✅ `config.py`
-3. ✅ `database/connection.py`
-4. ✅ `database/schema.py`
-5. ✅ `models/base.py`
+1. [x] Crear estructura de carpetas
+2. [x] `config.py`
+3. [x] `database/connection.py`
+4. [x] `database/schema.py`
+5. [x] `models/base.py`
 
 ### Fase 2: Modelos y Repositorios
-6. ✅ Todos los modelos (`models/*.py`)
-7. ✅ `repositories/base_repository.py`
-8. ✅ Todos los repositorios específicos
+6. [x] Todos los modelos (`models/*.py`)
+7. [x] `repositories/base_repository.py`
+8. [x] Todos los repositorios específicos
 
 ### Fase 3: Servicios
-9. ✅ `services/validation_service.py`
-10. ✅ Servicios específicos
+9. [x] `services/validation_service.py`
+10. [x] Servicios específicos (materia, profesor, horario, turno)
 
 ### Fase 4: UI Base
-11. ✅ `ui/styles.py`
-12. ✅ `ui/components/`
-13. ✅ `utils/`
-14. ✅ `ui/main_window.py` (estructura base)
+11. [x] `ui/styles.py`
+12. [x] `ui/components/`
+13. [x] `utils/`
+14. [x] `ui/main_window.py` (estructura base)
 
 ### Fase 5: Vistas (Pantallas)
-15. ✅ `ui/views/materias_view.py`
-16. ✅ `ui/views/profesores_view.py`
-17. ✅ `ui/views/turnos_view.py`
-18. ✅ `ui/views/planes_view.py`
-19. ✅ `ui/views/anios_view.py`
-20. ✅ `ui/views/divisiones_view.py`
-21. ✅ `ui/views/horarios_view.py`
+15. [x] `ui/views/materias_view.py`
+16. [x] `ui/views/profesores_view.py`
+17. [ ] `ui/views/turnos_view.py`
+18. [ ] `ui/views/planes_view.py`
+19. [ ] `ui/views/anios_view.py`
+20. [ ] `ui/views/divisiones_view.py`
+21. [ ] `ui/views/horarios_view.py`
 
 ### Fase 6: Integración y Pruebas
-22. ✅ `main.py` (punto de entrada)
-23. ✅ Pruebas de integración
-24. ✅ Ajustes y correcciones
+22. [ ] `main.py` (punto de entrada)
+23. [ ] Pruebas de integración
+24. [ ] Ajustes y correcciones
 
 ## 🎯 Beneficios de la Refactorización
 
@@ -449,6 +452,19 @@ def metodo_ejemplo(param1: str, param2: int) -> bool:
 
 ---
 
-**Versión del Plan:** 1.0  
+**Versión del Plan:** 1.1  
 **Fecha:** 31 de Octubre 2025  
-**Estado:** Pendiente de aprobación
+**Estado:** En progreso
+
+## 📝 Historial de Cambios
+
+### v1.1 - 31 de Octubre 2025
+- ✅ Completadas Fases 1-4 (Fundamentos, Modelos, Repositorios, Servicios base, UI base)
+- ✅ Implementadas vistas: `materias_view.py`, `profesores_view.py`
+- ✅ Agregado `turno_service.py` con validaciones completas
+- ✅ Integración de servicios en `MainWindow`
+- 🔄 Pendientes: vistas de turnos, planes, años, divisiones y horarios
+
+### v1.0 - 31 de Octubre 2025
+- 📋 Plan inicial aprobado
+

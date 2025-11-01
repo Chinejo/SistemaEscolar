@@ -73,8 +73,14 @@ Sigue este orden para evitar problemas de dependencias:
 
 #### **Fase 4: Servicios**
 ```
-repositories/validation_service.py
-... (etc)
+services/validation_service.py
+services/materia_service.py
+services/profesor_service.py
+services/horario_service.py
+services/turno_service.py
+services/plan_service.py
+services/anio_service.py
+services/division_service.py
 ```
 
 #### **Fase 5: UI**

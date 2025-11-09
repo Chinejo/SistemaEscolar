@@ -36,10 +36,14 @@ version 2.0/
 │   └── horario_repository.py
 ├── services/                        # Lógica de negocio
 │   ├── __init__.py
+│   ├── validation_service.py
 │   ├── materia_service.py
 │   ├── profesor_service.py
 │   ├── horario_service.py
-│   └── validation_service.py
+│   ├── turno_service.py
+│   ├── plan_service.py
+│   ├── anio_service.py
+│   └── division_service.py
 ├── ui/                              # Interfaz de usuario
 │   ├── __init__.py
 │   ├── styles.py
@@ -115,13 +119,8 @@ Ver [CHECKLIST_IMPLEMENTACION.md](./CHECKLIST_IMPLEMENTACION.md) para el estado 
 
 ## 🎯 Próximos Pasos
 
-1. Implementar módulos base (config, database, models)
-2. Crear repositorios
-3. Implementar servicios
-4. Migrar componentes UI
-5. Migrar vistas
-6. Pruebas de integración
-7. Compilación y distribución
+1. Ejecutar pruebas funcionales y de integración
+2. Preparar la compilación y distribución
 
 ## 👥 Contribución
 

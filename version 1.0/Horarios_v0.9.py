@@ -486,6 +486,17 @@ def obtener_planes_de_turno(turno_id: int) -> list:
 	conn.close()
 	return [{'id': r[0], 'nombre': r[1]} for r in rows]
 
+def obtener_turnos_de_plan(plan_id: int) -> list:
+	"""Obtiene los turnos asociados a un plan de estudio"""
+	conn = get_connection()
+	c = conn.cursor()
+	c.execute('''SELECT DISTINCT t.id, t.nombre FROM turno t
+				 JOIN turno_plan tp ON tp.turno_id = t.id
+				 WHERE tp.plan_id = ?''', (plan_id,))
+	rows = c.fetchall()
+	conn.close()
+	return [{'id': r[0], 'nombre': r[1]} for r in rows]
+
 # Función helper para autocompletar comboboxes con una sola opción
 def autocompletar_combobox(combobox, valores, incluir_vacio=True):
 	"""
@@ -770,10 +781,29 @@ class ToolTip:
 			self.tip_window = None
 
 # === Helpers para interfaz gráfica ===
-def crear_treeview(parent, columnas, headings, height=10):
+def crear_treeview(parent, columnas, headings, height=3, column_config=None):
+	"""Crea un Treeview con altura mínima de 3 líneas y scrollable
+	
+	Args:
+		parent: Frame padre
+		columnas: Lista de nombres de columnas
+		headings: Lista de encabezados de columnas
+		height: Altura mínima en líneas
+		column_config: Diccionario opcional con configuración de columnas
+			Ejemplo: {'#0': {'width': 50, 'anchor': 'center'}, 'col1': {'width': 100, 'anchor': 'center'}}
+	"""
 	tree = ttk.Treeview(parent, columns=columnas, show='headings', height=height)
+	
+	# Configurar encabezados
 	for col, head in zip(columnas, headings):
 		tree.heading(col, text=head)
+	
+	# Configurar columnas si se proporciona configuración
+	if column_config:
+		for col_name, config in column_config.items():
+			if col_name in ['#0'] + list(columnas):
+				tree.column(col_name, **config)
+	
 	vsb = ttk.Scrollbar(parent, orient='vertical', command=tree.yview)
 	hsb = ttk.Scrollbar(parent, orient='horizontal', command=tree.xview)
 	tree.configure(yscroll=vsb.set, xscroll=hsb.set)
@@ -804,24 +834,13 @@ class App(tk.Tk):
 		menubar = tk.Menu(self)
 		self.config(menu=menubar)
 
-		planes_menu = tk.Menu(menubar, tearoff=0)
-		planes_menu.add_command(label='Gestionar Materias/Obligaciones', command=self.mostrar_materias)
-		planes_menu.add_separator()
-		planes_menu.add_command(label='Gestionar Planes de Estudio', command=self.mostrar_planes)
-		menubar.add_cascade(label='Plan de estudios', menu=planes_menu)
+		# Turnos, Planes y Materias (enlace directo)
+		menubar.add_command(label='Turnos, Planes y Materias', command=self.mostrar_turnos_planes_materias)
 
-		turnos_menu = tk.Menu(menubar, tearoff=0)
-		turnos_menu.add_command(label='Gestionar Turnos', command=self.mostrar_turnos)
-		menubar.add_cascade(label='Turnos', menu=turnos_menu)
+		# Personal y Cursos (enlace directo)
+		menubar.add_command(label='Personal y Cursos', command=self.mostrar_personal_cursos)
 
-		profesores_menu = tk.Menu(menubar, tearoff=0)
-		profesores_menu.add_command(label='Gestionar personal', command=self.mostrar_profesores)
-		menubar.add_cascade(label='Personal', menu=profesores_menu)
-
-		cursos_menu = tk.Menu(menubar, tearoff=0)
-		cursos_menu.add_command(label='Gestionar Cursos', command=self.mostrar_divisiones)
-		menubar.add_cascade(label='Cursos', menu=cursos_menu)
-
+		# Gestión de horarios (único con cascada)
 		horarios_menu = tk.Menu(menubar, tearoff=0)
 		horarios_menu.add_command(label='Por curso', command=self.mostrar_horarios_curso)
 		horarios_menu.add_command(label='Por profesor', command=self.mostrar_horarios_profesor)
@@ -889,6 +908,7 @@ class App(tk.Tk):
 		ttk.Button(btns, text='Agregar', command=self._agregar_materia).grid(row=0, column=0, padx=5)
 		ttk.Button(btns, text='Editar', command=self._editar_materia).grid(row=0, column=1, padx=5)
 		ttk.Button(btns, text='Eliminar', command=self._eliminar_materia).grid(row=0, column=2, padx=5)
+		ttk.Button(btns, text='Asignar a Plan de Estudio', command=self._asignar_materias_a_plan).grid(row=0, column=3, padx=5)
 
 		# Selección en tabla
 		self.tree_materias.bind('<<TreeviewSelect>>', self._on_select_materia)
@@ -950,8 +970,392 @@ class App(tk.Tk):
 				self.materia_seleccionada_id = None
 			except Exception as e:
 				messagebox.showerror('Error', str(e))
+	
+	def _asignar_materias_a_plan(self):
+		"""Ventana para asignar múltiples materias a un plan de estudio"""
+		planes = obtener_planes()
+		if not planes:
+			messagebox.showinfo('Información', 'No hay planes de estudio creados.\nPor favor, cree al menos un plan primero.')
+			return
+		
+		materias = obtener_materias()
+		if not materias:
+			messagebox.showinfo('Información', 'No hay materias creadas para asignar.')
+			return
+		
+		win = tk.Toplevel(self)
+		win.configure(bg='#f4f6fa')
+		win.title('Asignar Materias a Plan de Estudio')
+		win.geometry('550x500')
+		win.minsize(550, 500)
+		win.transient(self)
+		win.grab_set()
+		win.focus_force()
+		
+		ttk.Label(win, text='Asignar Materias a Plan de Estudio', font=('Arial', 12, 'bold')).pack(pady=10)
+		
+		# Selección de plan
+		frame_plan = ttk.Frame(win)
+		frame_plan.pack(pady=10, padx=20, fill='x')
+		ttk.Label(frame_plan, text='Plan de Estudio:', font=('Segoe UI', 10)).grid(row=0, column=0, sticky='w', pady=5)
+		
+		plan_nombres = [p['nombre'] for p in sorted(planes, key=lambda x: x['nombre'].lower())]
+		plan_ids = {p['nombre']: p['id'] for p in planes}
+		
+		cb_plan = ttk.Combobox(frame_plan, values=plan_nombres, state='readonly', width=40)
+		cb_plan.grid(row=0, column=1, sticky='ew', pady=5, padx=(10, 0))
+		frame_plan.columnconfigure(1, weight=1)
+		cb_plan.focus_set()
+		
+		# Frame para lista de materias con checkboxes
+		frame_materias = ttk.Frame(win)
+		frame_materias.pack(pady=10, padx=20, fill='both', expand=True)
+		ttk.Label(frame_materias, text='Seleccionar materias a asignar:', font=('Segoe UI', 10)).pack(anchor='w', pady=(0, 5))
+		
+		# Canvas con scrollbar
+		canvas_frame = ttk.Frame(frame_materias)
+		canvas_frame.pack(fill='both', expand=True)
+		
+		canvas = tk.Canvas(canvas_frame, bg='#ffffff', highlightthickness=1, highlightbackground='#cccccc')
+		scrollbar = ttk.Scrollbar(canvas_frame, orient='vertical', command=canvas.yview)
+		scrollable_frame = ttk.Frame(canvas)
+		
+		scrollable_frame.bind(
+			"<Configure>",
+			lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+		)
+		
+		canvas.create_window((0, 0), window=scrollable_frame, anchor='nw')
+		canvas.configure(yscrollcommand=scrollbar.set)
+		
+		canvas.pack(side='left', fill='both', expand=True)
+		scrollbar.pack(side='right', fill='y')
+		
+		# Variables para checkboxes
+		materias_vars = {}
+		materias_checkbuttons = []
+		
+		def actualizar_lista_materias(*args):
+			"""Actualiza la lista de materias según el plan seleccionado"""
+			# Limpiar checkboxes anteriores
+			for widget in scrollable_frame.winfo_children():
+				widget.destroy()
+			materias_vars.clear()
+			materias_checkbuttons.clear()
+			
+			plan_nombre = cb_plan.get()
+			if not plan_nombre:
+				ttk.Label(scrollable_frame, text='Seleccione un plan primero', foreground='gray').pack(pady=20)
+				return
+			
+			plan_id = plan_ids[plan_nombre]
+			materias_plan = obtener_materias_de_plan(plan_id)
+			materias_plan_ids = [m['id'] for m in materias_plan]
+			
+			# Crear checkboxes para materias no asignadas
+			materias_disponibles = [m for m in materias if m['id'] not in materias_plan_ids]
+			materias_disponibles_ordenadas = sorted(materias_disponibles, key=lambda x: x['nombre'].lower())
+			
+			if not materias_disponibles_ordenadas:
+				ttk.Label(scrollable_frame, text='Todas las materias ya están asignadas a este plan', 
+						 foreground='gray', font=('Segoe UI', 9, 'italic')).pack(pady=20)
+				return
+			
+			# Frame de selección general
+			frame_sel_todos = ttk.Frame(scrollable_frame)
+			frame_sel_todos.pack(fill='x', pady=(5, 10), padx=5)
+			
+			var_todos = tk.IntVar(value=0)
+			
+			def seleccionar_todos():
+				estado = var_todos.get()
+				for var in materias_vars.values():
+					var.set(estado)
+			
+			chk_todos = ttk.Checkbutton(frame_sel_todos, text='Seleccionar todas', 
+									   variable=var_todos, command=seleccionar_todos)
+			chk_todos.pack(anchor='w')
+			
+			ttk.Separator(scrollable_frame, orient='horizontal').pack(fill='x', pady=5)
+			
+			# Crear checkboxes para cada materia
+			for materia in materias_disponibles_ordenadas:
+				var = tk.IntVar(value=0)
+				texto = f"{materia['nombre']} ({materia['horas_semanales']} hs)"
+				chk = ttk.Checkbutton(scrollable_frame, text=texto, variable=var)
+				chk.pack(anchor='w', pady=2, padx=5)
+				materias_vars[materia['id']] = var
+				materias_checkbuttons.append(chk)
+		
+		cb_plan.bind('<<ComboboxSelected>>', actualizar_lista_materias)
+		
+		# Botones
+		frame_btns = ttk.Frame(win)
+		frame_btns.pack(pady=15)
+		
+		def asignar():
+			plan_nombre = cb_plan.get()
+			if not plan_nombre:
+				messagebox.showerror('Error', 'Seleccione un plan de estudio.', parent=win)
+				return
+			
+			materias_seleccionadas = [mid for mid, var in materias_vars.items() if var.get() == 1]
+			if not materias_seleccionadas:
+				messagebox.showwarning('Atención', 'No ha seleccionado ninguna materia.', parent=win)
+				return
+			
+			plan_id = plan_ids[plan_nombre]
+			
+			try:
+				# Asignar cada materia seleccionada
+				for materia_id in materias_seleccionadas:
+					agregar_materia_a_plan(plan_id, materia_id)
+				
+				messagebox.showinfo('Éxito', 
+								   f'Se asignaron {len(materias_seleccionadas)} materia(s) al plan "{plan_nombre}".', 
+								   parent=win)
+				
+				# Actualizar la lista para reflejar los cambios
+				actualizar_lista_materias()
+				
+			except Exception as e:
+				messagebox.showerror('Error', str(e), parent=win)
+		
+		ttk.Button(frame_btns, text='Asignar Seleccionadas', command=asignar, width=20).grid(row=0, column=0, padx=5)
+		ttk.Button(frame_btns, text='Cerrar', command=win.destroy, width=15).grid(row=0, column=1, padx=5)
 
 
+	# ============================================================
+	# PERSONAL Y CURSOS - Vista consolidada con tabs
+	# ============================================================
+	
+	def mostrar_personal_cursos(self):
+		"""Muestra Personal y Cursos en tabs con botones laterales"""
+		self.limpiar_frame()
+		
+		# Título principal
+		ttk.Label(self.frame_principal, text='Personal y Cursos', 
+				 font=('Arial', 16, 'bold')).pack(pady=15)
+		
+		# Crear notebook para tabs
+		notebook = ttk.Notebook(self.frame_principal)
+		notebook.pack(fill='both', expand=True, padx=10, pady=5)
+		
+		# Crear tabs
+		tab_personal = ttk.Frame(notebook)
+		tab_cursos = ttk.Frame(notebook)
+		
+		notebook.add(tab_personal, text='Personal')
+		notebook.add(tab_cursos, text='Cursos')
+		
+		# Crear contenido de cada tab
+		self._crear_tab_personal(tab_personal)
+		self._crear_tab_cursos(tab_cursos)
+	
+	def _crear_tab_personal(self, parent):
+		"""Crea el tab de Personal con layout lateral"""
+		# Frame principal con dos columnas: aside y contenido
+		main_frame = ttk.Frame(parent)
+		main_frame.pack(fill='both', expand=True, padx=10, pady=10)
+		main_frame.columnconfigure(1, weight=1)
+		main_frame.rowconfigure(0, weight=1)
+		
+		# ===== ASIDE IZQUIERDO =====
+		aside = ttk.Frame(main_frame)
+		aside.grid(row=0, column=0, sticky='ns', padx=(0, 10))
+		
+		ttk.Label(aside, text='Acciones', font=('Arial', 11, 'bold')).pack(pady=(0, 10))
+		
+		# Formulario de entrada
+		ttk.Label(aside, text='Nombre:').pack(pady=(5, 2))
+		self.entry_nombre_profesor = ttk.Entry(aside, width=25)
+		self.entry_nombre_profesor.pack(pady=(0, 10))
+		
+		# Botones verticales
+		ttk.Button(aside, text='Agregar', command=self._agregar_profesor, width=22).pack(pady=3)
+		ttk.Button(aside, text='Editar', command=self._editar_profesor, width=22).pack(pady=3)
+		ttk.Button(aside, text='Eliminar', command=self._eliminar_profesor, width=22).pack(pady=3)
+		
+		ttk.Separator(aside, orient='horizontal').pack(fill='x', pady=10)
+		
+		ttk.Button(aside, text='Banca de horas', command=self._gestionar_banca_profesor, width=22).pack(pady=3)
+		ttk.Button(aside, text='Turnos del agente', command=self._gestionar_turnos_profesor, width=22).pack(pady=3)
+		
+		# ===== CONTENIDO DERECHO =====
+		content = ttk.Frame(main_frame)
+		content.grid(row=0, column=1, sticky='nsew')
+		
+		# Totales
+		self.label_total_profesores = ttk.Label(content, text='', font=('Arial', 10))
+		self.label_total_profesores.pack(pady=(0, 5))
+		
+		# Filtros
+		frame_filtro = ttk.Frame(content)
+		frame_filtro.pack(pady=5)
+		
+		ttk.Label(frame_filtro, text='Filtro:').grid(row=0, column=0, padx=5)
+		self.filtro_profesor = tk.StringVar()
+		entry_filtro = ttk.Entry(frame_filtro, textvariable=self.filtro_profesor, width=20)
+		entry_filtro.grid(row=0, column=1, padx=5)
+		
+		ttk.Label(frame_filtro, text='Turno:').grid(row=0, column=2, padx=5)
+		turnos = obtener_turnos()
+		self.turnos_dict_prof = {t['nombre']: t['id'] for t in turnos}
+		self.cb_turno_profesor = ttk.Combobox(frame_filtro, values=['Todos'] + list(self.turnos_dict_prof.keys()), 
+											 state='readonly', width=18)
+		self.cb_turno_profesor.set('Todos')
+		self.cb_turno_profesor.grid(row=0, column=3, padx=5)
+		
+		# Tabla de profesores
+		frame_tabla = ttk.Frame(content)
+		frame_tabla.pack(pady=10, fill='both', expand=True)
+		self.tree_profesores = crear_treeview(frame_tabla, ('Nombre',), ('Nombre',))
+		self._recargar_profesores_tree()
+		
+		# Eventos de filtrado
+		def filtrar_profesores(*args):
+			filtro = self.filtro_profesor.get().lower()
+			turno_nombre = self.cb_turno_profesor.get()
+			if turno_nombre == 'Todos':
+				profesores = obtener_profesores()
+			else:
+				turno_id = self.turnos_dict_prof[turno_nombre]
+				profesores = obtener_profesores_por_turno(turno_id)
+			profesores_filtrados = [p for p in profesores if filtro in p['nombre'].lower()]
+			recargar_treeview(self.tree_profesores, profesores_filtrados, ['nombre'])
+			self.label_total_profesores.config(text=f'Total de agentes: {len(profesores_filtrados)}')
+		
+		self.filtro_profesor.trace_add('write', filtrar_profesores)
+		self.cb_turno_profesor.bind('<<ComboboxSelected>>', lambda e: filtrar_profesores())
+		self.after(100, filtrar_profesores)
+		
+		# Selección en tabla
+		self.tree_profesores.bind('<<TreeviewSelect>>', self._on_select_profesor)
+		self.profesor_seleccionado_id = None
+	
+	def _crear_tab_cursos(self, parent):
+		"""Crea el tab de Cursos con layout lateral"""
+		# Frame principal con dos columnas: aside y contenido
+		main_frame = ttk.Frame(parent)
+		main_frame.pack(fill='both', expand=True, padx=10, pady=10)
+		main_frame.columnconfigure(1, weight=1)
+		main_frame.rowconfigure(0, weight=1)
+		
+		# ===== ASIDE IZQUIERDO =====
+		aside = ttk.Frame(main_frame)
+		aside.grid(row=0, column=0, sticky='ns', padx=(0, 10))
+		
+		ttk.Label(aside, text='Acciones', font=('Arial', 11, 'bold')).pack(pady=(0, 10))
+		
+		# Botones verticales
+		ttk.Button(aside, text='Agregar', command=self._agregar_division, width=22).pack(pady=3)
+		ttk.Button(aside, text='Editar', command=self._editar_division, width=22).pack(pady=3)
+		ttk.Button(aside, text='Eliminar', command=self._eliminar_division, width=22).pack(pady=3)
+		
+		# ===== CONTENIDO DERECHO =====
+		content = ttk.Frame(main_frame)
+		content.grid(row=0, column=1, sticky='nsew')
+		
+		# Totales
+		divisiones = obtener_divisiones()
+		total_divisiones = len(divisiones)
+		self.label_total_divisiones = ttk.Label(content, text=f'Total de divisiones: {total_divisiones}', 
+											   font=('Arial', 10))
+		self.label_total_divisiones.pack(pady=(0, 5))
+		
+		# Selectores de filtro
+		frame_sel = ttk.Frame(content)
+		frame_sel.pack(pady=5)
+		
+		ttk.Label(frame_sel, text='Turno:').grid(row=0, column=0, padx=5)
+		turnos = obtener_turnos()
+		self.turnos_dict = {t['nombre']: t['id'] for t in turnos}
+		self.cb_turno_division = ttk.Combobox(frame_sel, values=list(self.turnos_dict.keys()), 
+											 state='readonly', width=15)
+		self.cb_turno_division.grid(row=0, column=1, padx=5)
+		
+		ttk.Label(frame_sel, text='Plan:').grid(row=0, column=2, padx=5)
+		self.cb_plan_division = ttk.Combobox(frame_sel, values=[], state='disabled', width=15)
+		self.cb_plan_division.grid(row=0, column=3, padx=5)
+		
+		ttk.Label(frame_sel, text='Curso:').grid(row=0, column=4, padx=5)
+		self.cb_curso_division = ttk.Combobox(frame_sel, values=[], state='disabled', width=15)
+		self.cb_curso_division.grid(row=0, column=5, padx=5)
+		
+		# Eventos de selección
+		def on_turno_selected(event=None):
+			turno_nombre = self.cb_turno_division.get()
+			if not turno_nombre:
+				self.cb_plan_division['values'] = []
+				self.cb_plan_division.set('')
+				self.cb_plan_division.config(state='disabled')
+				self.cb_curso_division['values'] = []
+				self.cb_curso_division.set('')
+				self.cb_curso_division.config(state='disabled')
+				return
+			turno_id = self.turnos_dict[turno_nombre]
+			planes = obtener_planes_de_turno(turno_id)
+			self.planes_dict = {p['nombre']: p['id'] for p in planes}
+			self.cb_plan_division['values'] = list(self.planes_dict.keys())
+			self.cb_plan_division.set('')
+			self.cb_plan_division.config(state='readonly' if planes else 'disabled')
+			self.cb_curso_division['values'] = []
+			self.cb_curso_division.set('')
+			self.cb_curso_division.config(state='disabled')
+			if planes:
+				self.cb_plan_division.focus_set()
+			self._recargar_divisiones_tree()
+		
+		def on_plan_selected(event=None):
+			plan_nombre = self.cb_plan_division.get()
+			if not plan_nombre:
+				self.cb_curso_division['values'] = []
+				self.cb_curso_division.set('')
+				self.cb_curso_division.config(state='disabled')
+				return
+			plan_id = self.planes_dict[plan_nombre]
+			anios = obtener_anios(plan_id)
+			self.cb_curso_division['values'] = [a['nombre'] for a in anios]
+			self.cb_curso_division.set('')
+			self.cb_curso_division.config(state='readonly' if anios else 'disabled')
+			if anios:
+				self.cb_curso_division.focus_set()
+			self._recargar_divisiones_tree()
+		
+		def on_anio_selected(event=None):
+			self._recargar_divisiones_tree()
+		
+		self.cb_turno_division.bind('<<ComboboxSelected>>', on_turno_selected)
+		self.cb_plan_division.bind('<<ComboboxSelected>>', on_plan_selected)
+		self.cb_curso_division.bind('<<ComboboxSelected>>', on_anio_selected)
+		self.cb_turno_division.focus_set()
+		
+		# Tabla de divisiones
+		frame_tabla = ttk.Frame(content)
+		frame_tabla.pack(pady=10, fill='both', expand=True)
+		
+		# Configuración de columnas para el Treeview de Cursos
+		column_config = {
+			'Turno': {'width': 100, 'anchor': 'center'},
+			'Plan': {'width': 150, 'anchor': 'center'},
+			'Curso': {'width': 100, 'anchor': 'center'},
+			'División': {'width': 120, 'anchor': 'center'}
+		}
+		
+		self.tree_divisiones = crear_treeview(frame_tabla, 
+											 ('Turno', 'Plan', 'Curso', 'División'), 
+											 ('Turno', 'Plan', 'Curso', 'División'),
+											 column_config=column_config)
+		self._recargar_divisiones_tree()
+		
+		# Selección en tabla
+		self.tree_divisiones.bind('<<TreeviewSelect>>', self._on_select_division)
+		self.division_seleccionada_id = None
+	
+	# ============================================================
+	# FUNCIONES ANTIGUAS (mantenidas para compatibilidad)
+	# ============================================================
+	
 	def mostrar_profesores(self):
 		self.limpiar_frame()
 		ttk.Label(self.frame_principal, text='Gestión de personal', font=('Arial', 14)).pack(pady=10)
@@ -1079,9 +1483,14 @@ class App(tk.Tk):
 		self._abrir_ventana_banca_profesor(self.profesor_seleccionado_id)
 
 	def _abrir_ventana_banca_profesor(self, profesor_id):
+		# Obtener nombre del profesor
+		profesores = obtener_profesores()
+		profesor = next((p for p in profesores if p['id'] == profesor_id), None)
+		nombre_profesor = profesor['nombre'] if profesor else 'Agente'
+		
 		win = tk.Toplevel(self)
 		win.configure(bg='#f4f6fa')
-		win.title('Obligaciones del agente')
+		win.title(f'Obligaciones de {nombre_profesor}')
 		win.geometry('550x450')
 		win.minsize(550, 450)
 		win.transient(self)
@@ -1093,7 +1502,7 @@ class App(tk.Tk):
 		frame_tabla = ttk.Frame(win)
 		frame_tabla.pack(pady=5, padx=10, fill='both', expand=True)
 		
-		tree_banca = ttk.Treeview(frame_tabla, columns=('Obligación', 'Horas'), show='headings')
+		tree_banca = ttk.Treeview(frame_tabla, columns=('Obligación', 'Horas'), show='headings', height=3)
 		tree_banca.heading('Obligación', text='Obligación')
 		tree_banca.heading('Horas', text='Horas asignadas')
 		tree_banca.pack(side='left', fill='both', expand=True)
@@ -1968,34 +2377,69 @@ class App(tk.Tk):
 							hora_inicio = default_h.get('hora_inicio') or ''
 						if not hora_fin:
 							hora_fin = default_h.get('hora_fin') or ''
-			datos_previos = None
-			if h_existente:
-				datos_previos = {
-					'id': h_existente['id'],
-					'hora_inicio': h_existente['hora_inicio'],
-					'hora_fin': h_existente['hora_fin'],
-					'materia_id': materia_ids.get(h_existente['materia'], None),
-					'profesor_id': profesor_ids.get(h_existente['profesor'], None)
-				}
+			mid = materia_ids.get(materia) if materia else None
+			pid = profesor_ids.get(profesor) if profesor else None
+			# Obtener turno_id de la división
+			turno_nombre = self.cb_turno_horario.get()
+			turno_id = self.turnos_dict_horario[turno_nombre]
+			
 			try:
+				# Si existe un horario, actualizar en lugar de eliminar y crear
 				if h_existente:
-					eliminar_horario(h_existente['id'])
-				mid = materia_ids.get(materia) if materia else None
-				pid = profesor_ids.get(profesor) if profesor else None
-				# Obtener turno_id de la división
-				turno_nombre = self.cb_turno_horario.get()
-				turno_id = self.turnos_dict_horario[turno_nombre]
-				crear_horario(division_id, dia, espacio, hora_inicio, hora_fin, mid, pid, turno_id)
+					# Validar antes de actualizar
+					if pid is not None:
+						conn_tmp = get_connection()
+						c_tmp = conn_tmp.cursor()
+						c_tmp.execute('''
+							SELECT h.id FROM horario h
+							JOIN division d ON h.division_id = d.id
+							WHERE h.dia=? AND h.espacio=? AND h.profesor_id=? AND d.turno_id=? AND h.division_id != ?
+						''', (dia, espacio, pid, turno_id, division_id))
+						if c_tmp.fetchone():
+							conn_tmp.close()
+							raise Exception('El profesor ya está asignado en ese horario en otra división del mismo turno.')
+						
+						if mid is not None:
+							c_tmp.execute('SELECT 1 FROM profesor_materia WHERE profesor_id=? AND materia_id=?', (pid, mid))
+							if not c_tmp.fetchone():
+								conn_tmp.close()
+								raise Exception('El profesor no tiene asignada la materia seleccionada.')
+						conn_tmp.close()
+					
+					# Actualizar el horario existente
+					conn_upd = get_connection()
+					c_upd = conn_upd.cursor()
+					# Ajustar contadores si cambiaron materia o profesor
+					old_mid = materia_ids.get(h_existente['materia'], None)
+					old_pid = profesor_ids.get(h_existente['profesor'], None)
+					
+					if old_mid != mid:
+						if old_mid is not None:
+							c_upd.execute('UPDATE materia SET horas_semanales = horas_semanales - 1 WHERE id=?', (old_mid,))
+						if mid is not None:
+							c_upd.execute('UPDATE materia SET horas_semanales = horas_semanales + 1 WHERE id=?', (mid,))
+					
+					if old_pid != pid or old_mid != mid:
+						if old_pid is not None and old_mid is not None:
+							c_upd.execute('UPDATE profesor_materia SET banca_horas = banca_horas - 1 WHERE profesor_id=? AND materia_id=?', (old_pid, old_mid))
+						if pid is not None and mid is not None:
+							c_upd.execute('UPDATE profesor_materia SET banca_horas = banca_horas + 1 WHERE profesor_id=? AND materia_id=?', (pid, mid))
+					
+					# Actualizar el registro de horario
+					hora_inicio_db = hora_inicio if hora_inicio else None
+					hora_fin_db = hora_fin if hora_fin else None
+					c_upd.execute('''UPDATE horario SET hora_inicio=?, hora_fin=?, materia_id=?, profesor_id=?, turno_id=? 
+									WHERE id=?''', 
+								(hora_inicio_db, hora_fin_db, mid, pid, turno_id, h_existente['id']))
+					conn_upd.commit()
+					conn_upd.close()
+				else:
+					# Crear nuevo horario
+					crear_horario(division_id, dia, espacio, hora_inicio, hora_fin, mid, pid, turno_id)
+				
 				self._dibujar_grilla_horario_curso()
 				win.destroy()
 			except Exception as e:
-				if datos_previos:
-					try:
-						turno_nombre = self.cb_turno_horario.get()
-						turno_id = self.turnos_dict_horario[turno_nombre]
-						crear_horario(division_id, dia, espacio, datos_previos['hora_inicio'], datos_previos['hora_fin'], datos_previos['materia_id'], datos_previos['profesor_id'], turno_id)
-					except Exception:
-						pass
 				msg = str(e)
 				if 'ya está asignado en ese horario en otra división' in msg or 'no tiene asignada la materia' in msg:
 					messagebox.showerror('Error', msg)
@@ -2813,6 +3257,480 @@ class App(tk.Tk):
 		ttk.Button(btns, text='Guardar', command=guardar, width=12).pack(side='left', padx=5)
 		ttk.Button(btns, text='Cancelar', command=win.destroy, width=12).pack(side='left', padx=5)
 
+	def mostrar_turnos_planes_materias(self):
+		"""Ventana unificada con tabs para Turnos, Planes de Estudio y Materias"""
+		self.limpiar_frame()
+		ttk.Label(self.frame_principal, text='Gestión de Turnos, Planes y Materias', font=('Arial', 14)).pack(pady=10)
+		
+		# Crear notebook (tabs)
+		notebook = ttk.Notebook(self.frame_principal)
+		notebook.pack(fill='both', expand=True, padx=10, pady=5)
+		
+		# Tab 1: Turnos
+		tab_turnos = ttk.Frame(notebook)
+		notebook.add(tab_turnos, text='Turnos')
+		
+		# Tab 2: Planes de Estudio
+		tab_planes = ttk.Frame(notebook)
+		notebook.add(tab_planes, text='Planes de Estudio')
+		
+		# Tab 3: Materias/Obligaciones
+		tab_materias = ttk.Frame(notebook)
+		notebook.add(tab_materias, text='Materias/Obligaciones')
+		
+		# ===== CONTENIDO TAB TURNOS =====
+		self._crear_tab_turnos(tab_turnos)
+		
+		# ===== CONTENIDO TAB PLANES =====
+		self._crear_tab_planes(tab_planes)
+		
+		# ===== CONTENIDO TAB MATERIAS =====
+		self._crear_tab_materias(tab_materias)
+	
+	# Alias para compatibilidad
+	def mostrar_turnos_y_planes(self):
+		"""Alias para mantener compatibilidad"""
+		self.mostrar_turnos_planes_materias()
+	
+	def _crear_tab_turnos(self, parent):
+		"""Crea el contenido del tab de Turnos"""
+		# Frame principal con aside y tabla
+		frame_principal = ttk.Frame(parent)
+		frame_principal.pack(fill='both', expand=True)
+		
+		# Aside izquierdo para acciones
+		frame_aside = ttk.Frame(frame_principal, width=250)
+		frame_aside.pack(side='left', fill='y', padx=(10, 5), pady=10)
+		frame_aside.pack_propagate(False)
+		
+		ttk.Label(frame_aside, text='Acciones', font=('Arial', 10, 'bold')).pack(pady=(0, 10))
+		
+		# Formulario
+		form = ttk.Frame(frame_aside)
+		form.pack(pady=(0, 10), fill='x')
+		ttk.Label(form, text='Nombre del turno:').grid(row=0, column=0, padx=5, pady=2, sticky='w')
+		self.entry_nombre_turno = ttk.Entry(form, width=25)
+		self.entry_nombre_turno.grid(row=1, column=0, padx=5, pady=2, sticky='ew')
+		form.grid_columnconfigure(0, weight=1)
+		
+		# Botones
+		btns = ttk.Frame(frame_aside)
+		btns.pack(pady=(0, 10), fill='x')
+		ttk.Button(btns, text='Agregar Turno', command=self._agregar_turno).pack(fill='x', pady=2)
+		ttk.Button(btns, text='Eliminar Turno', command=self._eliminar_turno).pack(fill='x', pady=2)
+		ttk.Button(btns, text='Ver Planes del Turno', command=self._gestionar_planes_turno).pack(fill='x', pady=2)
+		
+		# Tabla derecha
+		frame_tabla = ttk.Frame(frame_principal)
+		frame_tabla.pack(side='right', fill='both', expand=True, padx=(5, 10), pady=10)
+		column_config = {'Nombre': {'width': 200, 'anchor': 'center'}}
+		self.tree_turnos = crear_treeview(frame_tabla, ('Nombre',), ('Nombre',), column_config=column_config)
+		self._recargar_turnos_tree()
+
+		# Selección en tabla
+		self.tree_turnos.bind('<<TreeviewSelect>>', self._on_select_turno)
+		self.turno_seleccionado_id = None
+	
+	def _crear_tab_planes(self, parent):
+		"""Crea el contenido del tab de Planes de Estudio"""
+		# Frame principal con aside y tabla
+		frame_principal = ttk.Frame(parent)
+		frame_principal.pack(fill='both', expand=True)
+		
+		# Aside izquierdo para acciones
+		frame_aside = ttk.Frame(frame_principal, width=250)
+		frame_aside.pack(side='left', fill='y', padx=(10, 5), pady=10)
+		frame_aside.pack_propagate(False)
+		
+		ttk.Label(frame_aside, text='Acciones', font=('Arial', 10, 'bold')).pack(pady=(0, 10))
+		
+		# Botones
+		btns = ttk.Frame(frame_aside)
+		btns.pack(fill='x')
+		ttk.Button(btns, text='Crear Plan', command=self._crear_plan_con_turnos).pack(fill='x', pady=2)
+		ttk.Button(btns, text='Editar Plan y Turnos', command=self._editar_plan_con_turnos).pack(fill='x', pady=2)
+		ttk.Button(btns, text='Eliminar Plan', command=self._eliminar_plan).pack(fill='x', pady=2)
+		ttk.Button(btns, text='Ver Obligaciones del Plan', command=self._gestionar_materias_plan).pack(fill='x', pady=2)
+		
+		# Tabla derecha
+		frame_tabla = ttk.Frame(frame_principal)
+		frame_tabla.pack(side='right', fill='both', expand=True, padx=(5, 10), pady=10)
+		column_config = {'Nombre': {'width': 350, 'anchor': 'w'}, 'Turnos': {'width': 150, 'anchor': 'w'}}
+		self.tree_planes = crear_treeview(frame_tabla, ('Nombre', 'Turnos'), ('Nombre del Plan', 'Turnos Asignados'), column_config=column_config)
+		
+		self._recargar_planes_con_turnos_tree()
+
+		# Selección en tabla
+		self.tree_planes.bind('<<TreeviewSelect>>', self._on_select_plan)
+		self.plan_seleccionado_id = None
+	
+	def _recargar_planes_con_turnos_tree(self):
+		"""Recarga el árbol de planes mostrando los turnos asignados"""
+		for row in self.tree_planes.get_children():
+			self.tree_planes.delete(row)
+		
+		planes = sorted(obtener_planes(), key=lambda p: p['nombre'].lower())
+		for plan in planes:
+			# Obtener turnos del plan
+			turnos_plan = obtener_turnos_de_plan(plan['id'])
+			turnos_str = ', '.join([t['nombre'] for t in turnos_plan]) if turnos_plan else '(sin turnos)'
+			
+			self.tree_planes.insert('', 'end', iid=plan['id'], 
+								   values=(plan['nombre'], turnos_str))
+	
+	def _crear_tab_materias(self, parent):
+		"""Crea el contenido del tab de Materias/Obligaciones con selección múltiple"""
+		# Totales
+		materias = obtener_materias()
+		total_materias = len(materias)
+		total_horas = sum(m['horas_semanales'] for m in materias)
+		frame_tot = ttk.Frame(parent)
+		frame_tot.pack(pady=5)
+		ttk.Label(frame_tot, text=f'Total de materias/obligaciones: {total_materias}').grid(row=0, column=0, padx=10)
+		ttk.Label(frame_tot, text=f'Total de horas institucionales: {total_horas}').grid(row=0, column=1, padx=10)
+
+		# Frame de controles (solo Filtro)
+		frame_controles = ttk.Frame(parent)
+		frame_controles.pack(pady=5)
+		
+		# Filtro
+		ttk.Label(frame_controles, text='Filtro:').grid(row=0, column=0, padx=5)
+		self.filtro_materia = tk.StringVar()
+		entry_filtro = ttk.Entry(frame_controles, textvariable=self.filtro_materia, width=30)
+		entry_filtro.grid(row=0, column=1, padx=5)
+
+		# Frame principal con aside y tabla
+		frame_principal = ttk.Frame(parent)
+		frame_principal.pack(fill='both', expand=True)
+		
+		# Aside izquierdo para acciones
+		frame_aside = ttk.Frame(frame_principal, width=250)
+		frame_aside.pack(side='left', fill='y', padx=(10, 5), pady=10)
+		frame_aside.pack_propagate(False)
+		
+		ttk.Label(frame_aside, text='Acciones', font=('Arial', 10, 'bold')).pack(pady=(0, 10))
+		
+		# Formulario de alta
+		form = ttk.Frame(frame_aside)
+		form.pack(pady=(0, 10), fill='x')
+		ttk.Label(form, text='Nueva Materia:').grid(row=0, column=0, padx=5, pady=2, sticky='w')
+		self.entry_nombre_materia_tab = ttk.Entry(form, width=25)
+		self.entry_nombre_materia_tab.grid(row=1, column=0, padx=5, pady=2, sticky='ew')
+		form.grid_columnconfigure(0, weight=1)
+
+		# Botones
+		btns = ttk.Frame(frame_aside)
+		btns.pack(fill='x')
+		ttk.Button(btns, text='Agregar', command=self._agregar_materia_tab).pack(fill='x', pady=2)
+		ttk.Button(btns, text='Editar', command=self._editar_materia_tab).pack(fill='x', pady=2)
+		ttk.Button(btns, text='Eliminar', command=self._eliminar_materias_tab).pack(fill='x', pady=2)
+		ttk.Button(btns, text='Asignar a Plan de Estudio', command=self._asignar_materias_seleccionadas_a_plan).pack(fill='x', pady=2)
+		
+		# Tabla derecha
+		frame_tabla = ttk.Frame(frame_principal)
+		frame_tabla.pack(side='right', fill='both', expand=True, padx=(5, 10), pady=10)
+		
+		# Configurar treeview con columnas adicionales para checkboxes visuales
+		self.tree_materias_tab = ttk.Treeview(frame_tabla, columns=('Sel', 'Nombre', 'Horas'), 
+											  show='headings', height=3, selectmode='none')
+		self.tree_materias_tab.heading('Sel', text='☐')
+		self.tree_materias_tab.heading('Nombre', text='Nombre')
+		self.tree_materias_tab.heading('Horas', text='Horas asignadas')
+		
+		# Configurar anchos de columna
+		self.tree_materias_tab.column('Sel', width=5, anchor='center')
+		self.tree_materias_tab.column('Nombre', width=345, anchor='center')
+		self.tree_materias_tab.column('Horas', width=100, anchor='center')
+		
+		vsb = ttk.Scrollbar(frame_tabla, orient='vertical', command=self.tree_materias_tab.yview)
+		hsb = ttk.Scrollbar(frame_tabla, orient='horizontal', command=self.tree_materias_tab.xview)
+		self.tree_materias_tab.configure(yscroll=vsb.set, xscroll=hsb.set)
+		
+		self.tree_materias_tab.grid(row=0, column=0, sticky='nsew')
+		vsb.grid(row=0, column=1, sticky='ns')
+		hsb.grid(row=1, column=0, sticky='ew')
+		frame_tabla.grid_rowconfigure(0, weight=1)
+		frame_tabla.grid_columnconfigure(0, weight=1)
+		
+		# Set para rastrear materias seleccionadas
+		self.materias_seleccionadas = set()
+		
+		# Binding para click simple (seleccionar/deseleccionar)
+		self.tree_materias_tab.bind('<Button-1>', self._on_click_materias_tab)
+		
+		self._recargar_materias_tab()
+
+		# Filtro en tiempo real
+		def filtrar_materias(*args):
+			filtro = self.filtro_materia.get().lower()
+			materias_filtradas = [m for m in obtener_materias() if filtro in m['nombre'].lower()]
+			self._recargar_materias_tab(materias_filtradas)
+		self.filtro_materia.trace_add('write', filtrar_materias)
+	
+	def _recargar_materias_tab(self, materias=None):
+		"""Recarga la tabla de materias manteniendo las selecciones"""
+		if materias is None:
+			materias = obtener_materias()
+		
+		# Limpiar tabla
+		for row in self.tree_materias_tab.get_children():
+			self.tree_materias_tab.delete(row)
+		
+		# Ordenar alfabéticamente
+		materias_ordenadas = sorted(materias, key=lambda m: m['nombre'].lower())
+		
+		# Insertar materias con indicador de selección
+		for materia in materias_ordenadas:
+			seleccionado = '☑' if materia['id'] in self.materias_seleccionadas else '☐'
+			self.tree_materias_tab.insert('', 'end', iid=materia['id'], 
+										 values=(seleccionado, materia['nombre'], materia['horas_semanales']))
+		
+		# Actualizar heading según el estado
+		self._actualizar_heading_seleccion()
+	
+	def _on_click_materias_tab(self, event):
+		"""Maneja clicks en items o en el heading"""
+		region = self.tree_materias_tab.identify('region', event.x, event.y)
+		
+		# Si es click en heading
+		if region == 'heading':
+			column = self.tree_materias_tab.identify_column(event.x)
+			# Solo responder si es la primera columna (columna de checkboxes)
+			if column == '#1':
+				self._seleccionar_todas_materias()
+			return
+		
+		# Si es click en item/cell
+		if region != 'cell' and region != 'tree':
+			return
+		
+		item = self.tree_materias_tab.identify_row(event.y)
+		if not item:
+			return
+		
+		materia_id = int(item)
+		
+		# Alternar selección
+		if materia_id in self.materias_seleccionadas:
+			self.materias_seleccionadas.remove(materia_id)
+		else:
+			self.materias_seleccionadas.add(materia_id)
+		
+		# Actualizar visualización
+		valores = self.tree_materias_tab.item(item, 'values')
+		nuevo_check = '☑' if materia_id in self.materias_seleccionadas else '☐'
+		self.tree_materias_tab.item(item, values=(nuevo_check, valores[1], valores[2]))
+		
+		# Actualizar heading
+		self._actualizar_heading_seleccion()
+	
+	def _actualizar_heading_seleccion(self):
+		"""Actualiza el heading de la columna de selección según el estado"""
+		items = self.tree_materias_tab.get_children()
+		
+		if not items:
+			self.tree_materias_tab.heading('Sel', text='☐')
+			return
+		
+		# Si todas están seleccionadas, mostrar ☑, sino ☐
+		todas_seleccionadas = all(int(item) in self.materias_seleccionadas for item in items)
+		self.tree_materias_tab.heading('Sel', text='☑' if todas_seleccionadas else '☐')
+	
+	def _seleccionar_todas_materias(self):
+		"""Selecciona o deselecciona todas las materias visibles"""
+		items = self.tree_materias_tab.get_children()
+		
+		if not items:
+			return
+		
+		# Si todas están seleccionadas, deseleccionar todas
+		todas_seleccionadas = all(int(item) in self.materias_seleccionadas for item in items)
+		
+		if todas_seleccionadas:
+			# Deseleccionar todas
+			for item in items:
+				materia_id = int(item)
+				if materia_id in self.materias_seleccionadas:
+					self.materias_seleccionadas.remove(materia_id)
+		else:
+			# Seleccionar todas
+			for item in items:
+				materia_id = int(item)
+				self.materias_seleccionadas.add(materia_id)
+		
+		# Actualizar visualización
+		self._recargar_materias_tab()
+	
+	def _agregar_materia_tab(self):
+		"""Agregar nueva materia desde el tab"""
+		nombre = self.entry_nombre_materia_tab.get().strip()
+		if not nombre:
+			messagebox.showerror('Error', 'Ingrese un nombre válido.')
+			return
+		try:
+			crear_materia(nombre, 0)
+			self._recargar_materias_tab()
+			self.entry_nombre_materia_tab.delete(0, tk.END)
+		except Exception as e:
+			messagebox.showerror('Error', str(e))
+	
+	def _editar_materia_tab(self):
+		"""Editar materia - solo si hay UNA seleccionada"""
+		if len(self.materias_seleccionadas) == 0:
+			messagebox.showwarning('Atención', 'Seleccione una materia para editar.')
+			return
+		
+		if len(self.materias_seleccionadas) > 1:
+			messagebox.showerror('Error', 'No se puede editar más de una materia a la vez.')
+			return
+		
+		materia_id = list(self.materias_seleccionadas)[0]
+		materias = obtener_materias()
+		materia = next((m for m in materias if m['id'] == materia_id), None)
+		
+		if not materia:
+			return
+		
+		# Ventana de edición
+		win = tk.Toplevel(self)
+		win.configure(bg='#f4f6fa')
+		win.title('Editar Materia')
+		win.geometry('400x150')
+		win.transient(self)
+		win.resizable(False, False)
+		win.grab_set()
+		win.focus_force()
+		
+		ttk.Label(win, text='Editar Materia', font=('Arial', 12, 'bold')).pack(pady=10)
+		
+		frame = ttk.Frame(win)
+		frame.pack(pady=10)
+		ttk.Label(frame, text='Nombre:').grid(row=0, column=0, padx=5, pady=5)
+		entry_nombre = ttk.Entry(frame, width=30)
+		entry_nombre.insert(0, materia['nombre'])
+		entry_nombre.grid(row=0, column=1, padx=5, pady=5)
+		entry_nombre.focus_set()
+		
+		def guardar():
+			nuevo_nombre = entry_nombre.get().strip()
+			if not nuevo_nombre:
+				messagebox.showerror('Error', 'Ingrese un nombre válido.', parent=win)
+				return
+			try:
+				actualizar_materia(materia_id, nuevo_nombre, materia['horas_semanales'])
+				self._recargar_materias_tab()
+				win.destroy()
+			except Exception as e:
+				messagebox.showerror('Error', str(e), parent=win)
+		
+		frame_btns = ttk.Frame(win)
+		frame_btns.pack(pady=10)
+		ttk.Button(frame_btns, text='Guardar', command=guardar).grid(row=0, column=0, padx=5)
+		ttk.Button(frame_btns, text='Cancelar', command=win.destroy).grid(row=0, column=1, padx=5)
+		
+		entry_nombre.bind('<Return>', lambda e: guardar())
+	
+	def _eliminar_materias_tab(self):
+		"""Eliminar materias seleccionadas (permite múltiples)"""
+		if len(self.materias_seleccionadas) == 0:
+			messagebox.showwarning('Atención', 'Seleccione al menos una materia para eliminar.')
+			return
+		
+		cantidad = len(self.materias_seleccionadas)
+		mensaje = f'¿Está seguro de eliminar {cantidad} materia(s) seleccionada(s)?'
+		
+		if not messagebox.askyesno('Confirmar', mensaje):
+			return
+		
+		try:
+			for materia_id in list(self.materias_seleccionadas):
+				eliminar_materia(materia_id)
+			
+			self.materias_seleccionadas.clear()
+			self._recargar_materias_tab()
+			messagebox.showinfo('Éxito', f'Se eliminaron {cantidad} materia(s).')
+		except Exception as e:
+			messagebox.showerror('Error', str(e))
+	
+	def _asignar_materias_seleccionadas_a_plan(self):
+		"""Asignar materias seleccionadas a un plan (versión simplificada)"""
+		if len(self.materias_seleccionadas) == 0:
+			messagebox.showwarning('Atención', 'Seleccione al menos una materia para asignar.')
+			return
+		
+		planes = obtener_planes()
+		if not planes:
+			messagebox.showinfo('Información', 'No hay planes de estudio creados.\nPor favor, cree al menos un plan primero.')
+			return
+		
+		# Ventana simple con solo selector de plan
+		win = tk.Toplevel(self)
+		win.configure(bg='#f4f6fa')
+		win.title('Asignar Materias a Plan')
+		win.geometry('450x250')
+		win.transient(self)
+		win.resizable(False, False)
+		win.grab_set()
+		win.focus_force()
+		
+		ttk.Label(win, text='Asignar Materias a Plan de Estudio', font=('Arial', 12, 'bold')).pack(pady=15)
+		
+		# Mensaje informativo
+		cantidad = len(self.materias_seleccionadas)
+		ttk.Label(win, text=f'{cantidad} materia(s) seleccionada(s)', 
+				 font=('Segoe UI', 10), foreground='#555').pack(pady=5)
+		
+		# Selector de plan
+		frame_plan = ttk.Frame(win)
+		frame_plan.pack(pady=15)
+		ttk.Label(frame_plan, text='Plan de Estudio:').grid(row=0, column=0, padx=5)
+		
+		plan_nombres = [p['nombre'] for p in sorted(planes, key=lambda x: x['nombre'].lower())]
+		plan_ids = {p['nombre']: p['id'] for p in planes}
+		
+		cb_plan = ttk.Combobox(frame_plan, values=plan_nombres, state='readonly', width=30)
+		cb_plan.grid(row=0, column=1, padx=5)
+		cb_plan.focus_set()
+		
+		def asignar():
+			plan_nombre = cb_plan.get()
+			if not plan_nombre:
+				messagebox.showerror('Error', 'Seleccione un plan de estudio.', parent=win)
+				return
+			
+			plan_id = plan_ids[plan_nombre]
+			
+			# Verificar cuáles ya están asignadas
+			materias_plan = obtener_materias_de_plan(plan_id)
+			materias_plan_ids = [m['id'] for m in materias_plan]
+			
+			asignadas = 0
+			ya_asignadas = 0
+			
+			try:
+				for materia_id in self.materias_seleccionadas:
+					if materia_id in materias_plan_ids:
+						ya_asignadas += 1
+					else:
+						agregar_materia_a_plan(plan_id, materia_id)
+						asignadas += 1
+				
+				mensaje = f'Se asignaron {asignadas} materia(s) al plan "{plan_nombre}".'
+				if ya_asignadas > 0:
+					mensaje += f'\n({ya_asignadas} ya estaban asignadas)'
+				
+				messagebox.showinfo('Éxito', mensaje, parent=win)
+				win.destroy()
+				
+			except Exception as e:
+				messagebox.showerror('Error', str(e), parent=win)
+		
+		# Botones
+		frame_btns = ttk.Frame(win)
+		frame_btns.pack(pady=15)
+		ttk.Button(frame_btns, text='Asignar', command=asignar, width=15).grid(row=0, column=0, padx=5)
+		ttk.Button(frame_btns, text='Cancelar', command=win.destroy, width=15).grid(row=0, column=1, padx=5)
+
 	def mostrar_planes(self):
 		self.limpiar_frame()
 		ttk.Label(self.frame_principal, text='Gestión de Planes de Estudio', font=('Arial', 14)).pack(pady=10)
@@ -2848,7 +3766,7 @@ class App(tk.Tk):
 			return
 		try:
 			crear_plan(nombre)
-			self._cargar_planes_en_tree()
+			self._recargar_planes_tree()
 			self.entry_nombre_plan.delete(0, tk.END)
 		except Exception as e:
 			messagebox.showerror('Error', str(e))
@@ -2859,7 +3777,11 @@ class App(tk.Tk):
 			return
 		try:
 			eliminar_plan(self.plan_seleccionado_id)
-			self._cargar_planes_en_tree()
+			# Si estamos en la vista unificada, recargar con turnos
+			if hasattr(self, 'tree_planes') and hasattr(self.tree_planes, 'column') and 'Turnos' in str(self.tree_planes['columns']):
+				self._recargar_planes_con_turnos_tree()
+			else:
+				self._recargar_planes_tree()
 			self.plan_seleccionado_id = None
 		except Exception as e:
 			messagebox.showerror('Error', str(e))
@@ -2870,6 +3792,226 @@ class App(tk.Tk):
 			self.plan_seleccionado_id = int(sel[0])
 		else:
 			self.plan_seleccionado_id = None
+	
+	def _crear_plan_con_turnos(self):
+		"""Ventana para crear un plan de estudio y asignarle turnos"""
+		win = tk.Toplevel(self)
+		win.configure(bg='#f4f6fa')
+		win.title('Crear Plan de Estudio')
+		win.geometry('450x400')
+		win.minsize(450, 400)
+		win.transient(self)
+		win.resizable(False, False)
+		win.grab_set()
+		win.focus_force()
+		
+		ttk.Label(win, text='Nuevo Plan de Estudio', font=('Arial', 12, 'bold')).pack(pady=10)
+		
+		# Nombre del plan
+		frame_nombre = ttk.Frame(win)
+		frame_nombre.pack(pady=10, padx=20, fill='x')
+		ttk.Label(frame_nombre, text='Nombre del Plan:', font=('Segoe UI', 10)).pack(anchor='w', pady=(0, 5))
+		entry_nombre = ttk.Entry(frame_nombre, width=40)
+		entry_nombre.pack(fill='x')
+		entry_nombre.focus_set()
+		
+		# Selección de turnos
+		frame_turnos = ttk.Frame(win)
+		frame_turnos.pack(pady=10, padx=20, fill='both', expand=True)
+		ttk.Label(frame_turnos, text='Asignar a los siguientes turnos:', font=('Segoe UI', 10)).pack(anchor='w', pady=(0, 5))
+		
+		# Frame con scrollbar para checkboxes
+		canvas_frame = ttk.Frame(frame_turnos)
+		canvas_frame.pack(fill='both', expand=True)
+		
+		canvas = tk.Canvas(canvas_frame, bg='#f4f6fa', highlightthickness=0, height=150)
+		scrollbar = ttk.Scrollbar(canvas_frame, orient='vertical', command=canvas.yview)
+		scrollable_frame = ttk.Frame(canvas)
+		
+		scrollable_frame.bind(
+			"<Configure>",
+			lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+		)
+		
+		canvas.create_window((0, 0), window=scrollable_frame, anchor='nw')
+		canvas.configure(yscrollcommand=scrollbar.set)
+		
+		canvas.pack(side='left', fill='both', expand=True)
+		scrollbar.pack(side='right', fill='y')
+		
+		# Crear checkboxes para cada turno
+		turnos = obtener_turnos()
+		turnos_vars = {}
+		for turno in turnos:
+			var = tk.IntVar(value=0)
+			chk = ttk.Checkbutton(scrollable_frame, text=turno['nombre'], variable=var)
+			chk.pack(anchor='w', pady=2, padx=5)
+			turnos_vars[turno['id']] = var
+		
+		if not turnos:
+			ttk.Label(scrollable_frame, text='(No hay turnos creados)', foreground='gray').pack(pady=10)
+		
+		# Botones
+		frame_btns = ttk.Frame(win)
+		frame_btns.pack(pady=15)
+		
+		def guardar():
+			nombre = entry_nombre.get().strip()
+			if not nombre:
+				messagebox.showerror('Error', 'Ingrese un nombre para el plan.', parent=win)
+				return
+			
+			# Verificar que al menos un turno esté seleccionado
+			turnos_seleccionados = [tid for tid, var in turnos_vars.items() if var.get() == 1]
+			if not turnos_seleccionados:
+				messagebox.showerror('Error', 'Debe seleccionar al menos un turno.', parent=win)
+				return
+			
+			try:
+				# Crear el plan
+				crear_plan(nombre)
+				
+				# Obtener el ID del plan recién creado
+				planes = obtener_planes()
+				plan_id = next(p['id'] for p in planes if p['nombre'] == nombre)
+				
+				# Asignar turnos
+				for turno_id in turnos_seleccionados:
+					agregar_plan_a_turno(turno_id, plan_id)
+				
+				# Recargar árbol
+				self._recargar_planes_con_turnos_tree()
+				messagebox.showinfo('Éxito', f'Plan "{nombre}" creado y asignado a {len(turnos_seleccionados)} turno(s).', parent=win)
+				win.destroy()
+			except Exception as e:
+				messagebox.showerror('Error', str(e), parent=win)
+		
+		ttk.Button(frame_btns, text='Crear Plan', command=guardar, width=15).grid(row=0, column=0, padx=5)
+		ttk.Button(frame_btns, text='Cancelar', command=win.destroy, width=15).grid(row=0, column=1, padx=5)
+		
+		entry_nombre.bind('<Return>', lambda e: guardar())
+	
+	def _editar_plan_con_turnos(self):
+		"""Ventana para editar un plan de estudio y sus turnos asignados"""
+		if not self.plan_seleccionado_id:
+			messagebox.showerror('Error', 'Seleccione un plan para editar.')
+			return
+		
+		# Obtener datos actuales
+		planes = obtener_planes()
+		plan_actual = next((p for p in planes if p['id'] == self.plan_seleccionado_id), None)
+		if not plan_actual:
+			messagebox.showerror('Error', 'Plan no encontrado.')
+			return
+		
+		turnos_actuales = obtener_turnos_de_plan(self.plan_seleccionado_id)
+		turnos_actuales_ids = [t['id'] for t in turnos_actuales]
+		
+		win = tk.Toplevel(self)
+		win.configure(bg='#f4f6fa')
+		win.title('Editar Plan de Estudio')
+		win.geometry('450x400')
+		win.minsize(450, 400)
+		win.transient(self)
+		win.resizable(False, False)
+		win.grab_set()
+		win.focus_force()
+		
+		ttk.Label(win, text='Editar Plan de Estudio', font=('Arial', 12, 'bold')).pack(pady=10)
+		
+		# Nombre del plan
+		frame_nombre = ttk.Frame(win)
+		frame_nombre.pack(pady=10, padx=20, fill='x')
+		ttk.Label(frame_nombre, text='Nombre del Plan:', font=('Segoe UI', 10)).pack(anchor='w', pady=(0, 5))
+		entry_nombre = ttk.Entry(frame_nombre, width=40)
+		entry_nombre.insert(0, plan_actual['nombre'])
+		entry_nombre.pack(fill='x')
+		entry_nombre.focus_set()
+		
+		# Selección de turnos
+		frame_turnos = ttk.Frame(win)
+		frame_turnos.pack(pady=10, padx=20, fill='both', expand=True)
+		ttk.Label(frame_turnos, text='Turnos asignados:', font=('Segoe UI', 10)).pack(anchor='w', pady=(0, 5))
+		
+		# Frame con scrollbar para checkboxes
+		canvas_frame = ttk.Frame(frame_turnos)
+		canvas_frame.pack(fill='both', expand=True)
+		
+		canvas = tk.Canvas(canvas_frame, bg='#f4f6fa', highlightthickness=0, height=150)
+		scrollbar = ttk.Scrollbar(canvas_frame, orient='vertical', command=canvas.yview)
+		scrollable_frame = ttk.Frame(canvas)
+		
+		scrollable_frame.bind(
+			"<Configure>",
+			lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+		)
+		
+		canvas.create_window((0, 0), window=scrollable_frame, anchor='nw')
+		canvas.configure(yscrollcommand=scrollbar.set)
+		
+		canvas.pack(side='left', fill='both', expand=True)
+		scrollbar.pack(side='right', fill='y')
+		
+		# Crear checkboxes para cada turno
+		turnos = obtener_turnos()
+		turnos_vars = {}
+		for turno in turnos:
+			var = tk.IntVar(value=1 if turno['id'] in turnos_actuales_ids else 0)
+			chk = ttk.Checkbutton(scrollable_frame, text=turno['nombre'], variable=var)
+			chk.pack(anchor='w', pady=2, padx=5)
+			turnos_vars[turno['id']] = var
+		
+		if not turnos:
+			ttk.Label(scrollable_frame, text='(No hay turnos creados)', foreground='gray').pack(pady=10)
+		
+		# Botones
+		frame_btns = ttk.Frame(win)
+		frame_btns.pack(pady=15)
+		
+		def guardar():
+			nombre = entry_nombre.get().strip()
+			if not nombre:
+				messagebox.showerror('Error', 'Ingrese un nombre para el plan.', parent=win)
+				return
+			
+			# Verificar que al menos un turno esté seleccionado
+			turnos_seleccionados = [tid for tid, var in turnos_vars.items() if var.get() == 1]
+			if not turnos_seleccionados:
+				messagebox.showerror('Error', 'Debe seleccionar al menos un turno.', parent=win)
+				return
+			
+			try:
+				# Actualizar nombre del plan si cambió
+				if nombre != plan_actual['nombre']:
+					conn = get_connection()
+					c = conn.cursor()
+					c.execute('UPDATE plan_estudio SET nombre=? WHERE id=?', (nombre, self.plan_seleccionado_id))
+					conn.commit()
+					conn.close()
+				
+				# Actualizar turnos: quitar los que ya no están, agregar los nuevos
+				turnos_actuales_set = set(turnos_actuales_ids)
+				turnos_nuevos_set = set(turnos_seleccionados)
+				
+				# Quitar turnos desmarcados
+				for turno_id in turnos_actuales_set - turnos_nuevos_set:
+					quitar_plan_de_turno(turno_id, self.plan_seleccionado_id)
+				
+				# Agregar turnos nuevos
+				for turno_id in turnos_nuevos_set - turnos_actuales_set:
+					agregar_plan_a_turno(turno_id, self.plan_seleccionado_id)
+				
+				# Recargar árbol
+				self._recargar_planes_con_turnos_tree()
+				messagebox.showinfo('Éxito', f'Plan "{nombre}" actualizado.', parent=win)
+				win.destroy()
+			except Exception as e:
+				messagebox.showerror('Error', str(e), parent=win)
+		
+		ttk.Button(frame_btns, text='Guardar Cambios', command=guardar, width=15).grid(row=0, column=0, padx=5)
+		ttk.Button(frame_btns, text='Cancelar', command=win.destroy, width=15).grid(row=0, column=1, padx=5)
+		
+		entry_nombre.bind('<Return>', lambda e: guardar())
 
 	def _gestionar_materias_plan(self):
 		if not self.plan_seleccionado_id:
@@ -2887,7 +4029,7 @@ class App(tk.Tk):
 		todas_materias = sorted(obtener_materias(), key=lambda m: m['nombre'].lower())
 		frame = ttk.Frame(win)
 		frame.pack(fill='both', expand=True, padx=10, pady=10)
-		tree = ttk.Treeview(frame, columns=('Nombre',), show='headings', height=10)
+		tree = ttk.Treeview(frame, columns=('Nombre',), show='headings', height=3)
 		tree.heading('Nombre', text='Nombre')
 		tree.pack(side='left', fill='both', expand=True)
 		vsb = ttk.Scrollbar(frame, orient='vertical', command=tree.yview)
@@ -2981,7 +4123,7 @@ class App(tk.Tk):
 			return
 		try:
 			crear_turno(nombre)
-			self._cargar_turnos_en_tree()
+			self._recargar_turnos_tree()
 			self.entry_nombre_turno.delete(0, tk.END)
 		except Exception as e:
 			messagebox.showerror('Error', str(e))
@@ -2992,7 +4134,7 @@ class App(tk.Tk):
 			return
 		try:
 			eliminar_turno(self.turno_seleccionado_id)
-			self._cargar_turnos_en_tree()
+			self._recargar_turnos_tree()
 			self.turno_seleccionado_id = None
 		except Exception as e:
 			messagebox.showerror('Error', str(e))
@@ -3022,7 +4164,7 @@ class App(tk.Tk):
 		todos_planes = sorted(obtener_planes(), key=lambda p: p['nombre'].lower())
 		frame = ttk.Frame(win)
 		frame.pack(fill='both', expand=True, padx=10, pady=10)
-		tree = ttk.Treeview(frame, columns=('Nombre',), show='headings', height=10)
+		tree = ttk.Treeview(frame, columns=('Nombre',), show='headings', height=3)
 		tree.heading('Nombre', text='Nombre')
 		tree.pack(side='left', fill='both', expand=True)
 		vsb = ttk.Scrollbar(frame, orient='vertical', command=tree.yview)
@@ -3098,7 +4240,7 @@ class App(tk.Tk):
 		anios_plan = obtener_anios(self.plan_seleccionado_id)
 		frame = ttk.Frame(win)
 		frame.pack(fill='both', expand=True, padx=10, pady=10)
-		tree = ttk.Treeview(frame, columns=('Nombre',), show='headings', height=10)
+		tree = ttk.Treeview(frame, columns=('Nombre',), show='headings', height=3)
 		tree.heading('Nombre', text='Nombre')
 		tree.pack(side='left', fill='both', expand=True)
 		vsb = ttk.Scrollbar(frame, orient='vertical', command=tree.yview)
@@ -3160,7 +4302,7 @@ class App(tk.Tk):
 			materias_plan = obtener_materias_de_plan(self.plan_seleccionado_id)
 			frame3 = ttk.Frame(win3)
 			frame3.pack(fill='both', expand=True, padx=10, pady=10)
-			tree3 = ttk.Treeview(frame3, columns=('Nombre',), show='headings', height=10)
+			tree3 = ttk.Treeview(frame3, columns=('Nombre',), show='headings', height=3)
 			tree3.heading('Nombre', text='Nombre')
 			tree3.pack(side='left', fill='both', expand=True)
 			vsb3 = ttk.Scrollbar(frame3, orient='vertical', command=tree3.yview)
@@ -3233,70 +4375,171 @@ class App(tk.Tk):
 		if not self.profesor_seleccionado_id:
 			messagebox.showwarning('Atención', 'Seleccione un profesor para gestionar sus turnos.')
 			return
+		
 		profesor_id = self.profesor_seleccionado_id
+		
+		# Obtener nombre del profesor
+		profesores = obtener_profesores()
+		profesor = next((p for p in profesores if p['id'] == profesor_id), None)
+		nombre_profesor = profesor['nombre'] if profesor else 'Agente'
+		
+		# Ventana principal
 		win = tk.Toplevel(self)
 		win.configure(bg='#f4f6fa')
-		win.title('Turnos del agente')
-		win.geometry('450x500')
-		win.minsize(400, 450)
+		win.title(f'Turnos de {nombre_profesor}')
+		win.geometry('500x450')
+		win.minsize(450, 400)
 		win.transient(self)
 		win.grab_set()
 		win.focus_force()
-		ttk.Label(win, text='Turnos asignados', font=('Arial', 12)).pack(pady=8)
-		frame = ttk.Frame(win)
-		frame.pack(fill='both', expand=True, padx=10, pady=10)
-		tree_asignados = ttk.Treeview(frame, columns=('Nombre',), show='headings', height=6)
-		tree_asignados.heading('Nombre', text='Turno')
-		tree_asignados.pack(side='left', fill='both', expand=True)
-		vsb = ttk.Scrollbar(frame, orient='vertical', command=tree_asignados.yview)
-		tree_asignados.configure(yscroll=vsb.set)
+		
+		ttk.Label(win, text='Seleccionar turnos del agente', font=('Arial', 12, 'bold')).pack(pady=10)
+		
+		# Frame para el Treeview
+		frame_tree = ttk.Frame(win)
+		frame_tree.pack(fill='both', expand=True, padx=15, pady=5)
+		
+		# Treeview con checkboxes
+		tree = ttk.Treeview(frame_tree, columns=('Sel', 'Turno'), show='tree headings', height=8)
+		tree.heading('#0', text='')
+		tree.heading('Sel', text='☐')
+		tree.heading('Turno', text='Turno')
+		tree.column('#0', width=0, stretch=False)
+		tree.column('Sel', width=40, stretch=False, anchor='center')
+		tree.column('Turno', width=300)
+		tree.pack(side='left', fill='both', expand=True)
+		
+		# Scrollbar
+		vsb = ttk.Scrollbar(frame_tree, orient='vertical', command=tree.yview)
+		tree.configure(yscroll=vsb.set)
 		vsb.pack(side='right', fill='y')
-		def cargar_turnos_asignados():
-			for row in tree_asignados.get_children():
-				tree_asignados.delete(row)
-			for t in obtener_turnos_de_profesor(profesor_id):
-				tree_asignados.insert('', 'end', iid=t['id'], values=(t['nombre'],))
-		cargar_turnos_asignados()
-		ttk.Label(win, text='Agregar turno').pack(pady=5)
-		turnos = obtener_turnos()
-		turnos_asignados = [t['id'] for t in obtener_turnos_de_profesor(profesor_id)]
-		turnos_disponibles = [t for t in turnos if t['id'] not in turnos_asignados]
-		cb_turno = ttk.Combobox(win, values=[t['nombre'] for t in turnos_disponibles], state='readonly')
-		cb_turno.pack(pady=5)
-		def cargar_turnos_disponibles():
-			turnos = obtener_turnos()
-			turnos_asignados = [t['id'] for t in obtener_turnos_de_profesor(profesor_id)]
-			turnos_disponibles = [t for t in turnos if t['id'] not in turnos_asignados]
-			cb_turno['values'] = [t['nombre'] for t in turnos_disponibles]
-			cb_turno.set('')
-		def agregar_turno():
-			nombre = cb_turno.get()
-			if not nombre:
+		
+		# Conjunto para trackear selección
+		turnos_seleccionados = set()
+		
+		def cargar_turnos():
+			"""Carga todos los turnos con su estado de selección"""
+			tree.delete(*tree.get_children())
+			turnos_seleccionados.clear()
+			
+			# Obtener turnos asignados al profesor
+			turnos_asignados_ids = {t['id'] for t in obtener_turnos_de_profesor(profesor_id)}
+			
+			# Obtener todos los turnos
+			todos_turnos = sorted(obtener_turnos(), key=lambda t: t['nombre'].lower())
+			
+			# Insertar en el tree
+			for turno in todos_turnos:
+				esta_asignado = turno['id'] in turnos_asignados_ids
+				check = '☑' if esta_asignado else '☐'
+				tree.insert('', 'end', iid=turno['id'], values=(check, turno['nombre']))
+				
+				if esta_asignado:
+					turnos_seleccionados.add(turno['id'])
+			
+			actualizar_heading()
+		
+		def actualizar_heading():
+			"""Actualiza el checkbox del heading"""
+			items = tree.get_children()
+			if not items:
+				tree.heading('Sel', text='☐')
 				return
-			turno = next((t for t in obtener_turnos() if t['nombre'] == nombre), None)
-			if turno:
-				try:
-					asignar_turno_a_profesor(profesor_id, turno['id'])
-					cargar_turnos_asignados()
-					cargar_turnos_disponibles()
-				except Exception as e:
-					messagebox.showerror('Error', str(e))
-		frame = ttk.Frame(win)
-		frame.pack(pady=5)
-		ttk.Button(frame, text='Agregar', command=agregar_turno).grid(row=0, column=0, padx=2)
-		def quitar_turno():
-			sel = tree_asignados.selection()
-			if not sel:
+			
+			todas_seleccionadas = all(int(item) in turnos_seleccionados for item in items)
+			tree.heading('Sel', text='☑' if todas_seleccionadas else '☐')
+		
+		def on_click(event):
+			"""Maneja clicks en items o heading"""
+			region = tree.identify('region', event.x, event.y)
+			
+			# Click en heading
+			if region == 'heading':
+				column = tree.identify_column(event.x)
+				if column == '#1':  # Columna de checkboxes
+					seleccionar_desseleccionar_todas()
 				return
-			turno_id = int(sel[0])
-			if messagebox.askyesno('Confirmar', '¿Quitar turno del profesor?'):
-				try:
+			
+			# Click en item
+			if region not in ('cell', 'tree'):
+				return
+			
+			item = tree.identify_row(event.y)
+			if not item:
+				return
+			
+			turno_id = int(item)
+			
+			# Toggle selección
+			if turno_id in turnos_seleccionados:
+				turnos_seleccionados.remove(turno_id)
+			else:
+				turnos_seleccionados.add(turno_id)
+			
+			# Actualizar visualización
+			valores = tree.item(item, 'values')
+			nuevo_check = '☑' if turno_id in turnos_seleccionados else '☐'
+			tree.item(item, values=(nuevo_check, valores[1]))
+			
+			actualizar_heading()
+		
+		def seleccionar_desseleccionar_todas():
+			"""Selecciona o deselecciona todos los turnos"""
+			items = tree.get_children()
+			if not items:
+				return
+			
+			todas_seleccionadas = all(int(item) in turnos_seleccionados for item in items)
+			
+			if todas_seleccionadas:
+				turnos_seleccionados.clear()
+			else:
+				for item in items:
+					turnos_seleccionados.add(int(item))
+			
+			# Actualizar visualización
+			for item in items:
+				turno_id = int(item)
+				valores = tree.item(item, 'values')
+				nuevo_check = '☑' if turno_id in turnos_seleccionados else '☐'
+				tree.item(item, values=(nuevo_check, valores[1]))
+			
+			actualizar_heading()
+		
+		def guardar_cambios():
+			"""Guarda los cambios en la base de datos"""
+			try:
+				# Obtener turnos actualmente asignados
+				turnos_actuales = {t['id'] for t in obtener_turnos_de_profesor(profesor_id)}
+				
+				# Determinar qué agregar y qué quitar
+				turnos_a_agregar = turnos_seleccionados - turnos_actuales
+				turnos_a_quitar = turnos_actuales - turnos_seleccionados
+				
+				# Aplicar cambios
+				for turno_id in turnos_a_agregar:
+					asignar_turno_a_profesor(profesor_id, turno_id)
+				
+				for turno_id in turnos_a_quitar:
 					quitar_turno_a_profesor(profesor_id, turno_id)
-					cargar_turnos_asignados()
-					cargar_turnos_disponibles()
-				except Exception as e:
-					messagebox.showerror('Error', str(e))
-		ttk.Button(frame, text='Quitar turno', command=quitar_turno).grid(row=0, column=1, padx=2)
+				
+				messagebox.showinfo('Éxito', 'Los turnos han sido actualizados correctamente.', parent=win)
+				win.destroy()
+				
+			except Exception as e:
+				messagebox.showerror('Error', str(e), parent=win)
+		
+		# Bind del click
+		tree.bind('<Button-1>', on_click)
+		
+		# Cargar datos iniciales
+		cargar_turnos()
+		
+		# Botones
+		frame_btns = ttk.Frame(win)
+		frame_btns.pack(pady=15)
+		ttk.Button(frame_btns, text='Guardar cambios', command=guardar_cambios).grid(row=0, column=0, padx=5)
+		ttk.Button(frame_btns, text='Cancelar', command=win.destroy).grid(row=0, column=1, padx=5)
 
 if __name__ == "__main__":
     import tkinter as tk

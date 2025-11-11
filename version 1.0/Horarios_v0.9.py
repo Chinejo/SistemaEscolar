@@ -1139,8 +1139,8 @@ class App(tk.Tk):
 		# Turnos, Planes y Materias (enlace directo)
 		menubar.add_command(label='Turnos, Planes y Materias', command=self.mostrar_turnos_planes_materias)
 
-		# Personal y Cursos (enlace directo)
-		menubar.add_command(label='Personal y Cursos', command=self.mostrar_personal_cursos)
+		# Gestión de Personal y Cursos (enlace directo)
+		menubar.add_command(label='Gestión de Personal y Cursos', command=self.mostrar_personal_cursos)
 
 		# Gestión de horarios (único con cascada)
 		horarios_menu = tk.Menu(menubar, tearoff=0)
@@ -1457,16 +1457,16 @@ class App(tk.Tk):
 
 
 	# ============================================================
-	# PERSONAL Y CURSOS - Vista consolidada con tabs
+	# GESTIÓN DE PERSONAL Y CURSOS - Vista consolidada con tabs
 	# ============================================================
 	
 	def mostrar_personal_cursos(self):
-		"""Muestra Personal y Cursos en tabs con botones laterales"""
+		"""Muestra Gestión de Personal y Cursos en tabs con botones laterales"""
 		self.limpiar_frame()
 		
 		# Título principal
-		ttk.Label(self.frame_principal, text='Personal y Cursos', 
-				 font=('Arial', 16, 'bold')).pack(pady=15)
+		ttk.Label(self.frame_principal, text='Gestión de Personal y Cursos', 
+				 font=('Arial', 14)).pack(pady=10)
 		
 		# Crear notebook para tabs
 		notebook = ttk.Notebook(self.frame_principal)

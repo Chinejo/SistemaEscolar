@@ -85,6 +85,16 @@ def eliminar_entidad(conn, tabla, id_campo, id_valor):
 def init_db():
 	conn = get_connection()
 	c = conn.cursor()
+	
+	# Tabla de usuarios para login
+	c.execute('''CREATE TABLE IF NOT EXISTS usuarios (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		username TEXT UNIQUE NOT NULL,
+		password TEXT NOT NULL,
+		es_admin INTEGER NOT NULL DEFAULT 0,
+		fecha_creacion TEXT DEFAULT CURRENT_TIMESTAMP
+	)''')
+	
 	# Años por plan
 	c.execute('''CREATE TABLE IF NOT EXISTS anio (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -743,8 +753,144 @@ def eliminar_horario_profesor(id_: int):
 	# Usamos la misma función eliminar_horario que ya existe
 	eliminar_horario(id_)
 
+# ============== FUNCIONES DE BACKUP ==============
+import shutil
+from datetime import datetime
+
+def crear_backup_db(manual=False) -> str:
+	"""
+	Crea una copia de seguridad de la base de datos.
+	
+	Args:
+		manual: Si es True, crea un backup con timestamp detallado.
+				Si es False, crea/sobreescribe el backup automático.
+	
+	Returns:
+		Ruta del archivo de backup creado
+	"""
+	if not os.path.exists(DB_NAME):
+		raise Exception('La base de datos no existe.')
+	
+	if manual:
+		# Backup manual con timestamp completo
+		timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+		backup_name = f'horarios_backup_{timestamp}.bak'
+	else:
+		# Backup automático - siempre sobrescribe el mismo archivo
+		backup_name = 'horarios.bak'
+	
+	backup_path = os.path.join(DB_DIR, backup_name)
+	
+	try:
+		shutil.copy2(DB_NAME, backup_path)
+		return backup_path
+	except Exception as e:
+		raise Exception(f'Error al crear backup: {str(e)}')
+
+def listar_backups() -> list:
+	"""Lista todos los archivos de backup en el directorio de la base de datos"""
+	backups = []
+	if os.path.exists(DB_DIR):
+		for filename in os.listdir(DB_DIR):
+			if filename.endswith('.bak'):
+				filepath = os.path.join(DB_DIR, filename)
+				stat = os.stat(filepath)
+				backups.append({
+					'nombre': filename,
+					'ruta': filepath,
+					'tamaño': stat.st_size,
+					'fecha': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
+				})
+	# Ordenar por fecha, más reciente primero
+	backups.sort(key=lambda x: x['fecha'], reverse=True)
+	return backups
+
+# ============== FUNCIONES DE GESTION DE USUARIOS ==============
+import hashlib
+
+def hash_password(password: str) -> str:
+	"""Genera un hash SHA256 de la contraseña"""
+	return hashlib.sha256(password.encode()).hexdigest()
+
+def verificar_usuario(username: str, password: str) -> dict:
+	"""Verifica las credenciales de un usuario y retorna sus datos si son correctas"""
+	conn = get_connection()
+	c = conn.cursor()
+	password_hash = hash_password(password)
+	c.execute('SELECT id, username, es_admin FROM usuarios WHERE username=? AND password=?', 
+			  (username, password_hash))
+	row = c.fetchone()
+	conn.close()
+	if row:
+		return {'id': row[0], 'username': row[1], 'es_admin': bool(row[2])}
+	return None
+
+def crear_usuario(username: str, password: str, es_admin: bool = False):
+	"""Crea un nuevo usuario en el sistema"""
+	conn = get_connection()
+	c = conn.cursor()
+	password_hash = hash_password(password)
+	try:
+		c.execute('INSERT INTO usuarios (username, password, es_admin) VALUES (?, ?, ?)',
+				  (username, password_hash, 1 if es_admin else 0))
+		conn.commit()
+	except sqlite3.IntegrityError:
+		conn.close()
+		raise Exception('Ya existe un usuario con ese nombre.')
+	conn.close()
+
+def obtener_usuarios() -> list:
+	"""Obtiene la lista de todos los usuarios (sin contraseñas)"""
+	conn = get_connection()
+	c = conn.cursor()
+	c.execute('SELECT id, username, es_admin, fecha_creacion FROM usuarios')
+	rows = c.fetchall()
+	conn.close()
+	return [{'id': r[0], 'username': r[1], 'es_admin': bool(r[2]), 'fecha_creacion': r[3]} for r in rows]
+
+def eliminar_usuario(user_id: int):
+	"""Elimina un usuario del sistema"""
+	conn = get_connection()
+	c = conn.cursor()
+	# No permitir eliminar si es el único admin
+	c.execute('SELECT COUNT(*) FROM usuarios WHERE es_admin=1')
+	admin_count = c.fetchone()[0]
+	c.execute('SELECT es_admin FROM usuarios WHERE id=?', (user_id,))
+	row = c.fetchone()
+	if row and row[0] == 1 and admin_count <= 1:
+		conn.close()
+		raise Exception('No se puede eliminar el único administrador del sistema.')
+	c.execute('DELETE FROM usuarios WHERE id=?', (user_id,))
+	conn.commit()
+	conn.close()
+
+def hay_usuarios() -> bool:
+	"""Verifica si existen usuarios en el sistema"""
+	conn = get_connection()
+	c = conn.cursor()
+	c.execute('SELECT COUNT(*) FROM usuarios')
+	count = c.fetchone()[0]
+	conn.close()
+	return count > 0
+
+def cambiar_password(user_id: int, nueva_password: str):
+	"""Cambia la contraseña de un usuario"""
+	conn = get_connection()
+	c = conn.cursor()
+	password_hash = hash_password(nueva_password)
+	c.execute('UPDATE usuarios SET password=? WHERE id=?', (password_hash, user_id))
+	conn.commit()
+	conn.close()
+
 # Inicializar la base de datos al importar el módulo
 init_db()
+
+# Crear backup automático al inicio (si existe la base de datos)
+try:
+	if os.path.exists(DB_NAME):
+		crear_backup_db(manual=False)
+except Exception:
+	pass  # Si falla el backup automático, continuar igualmente
 
 # ================= INTERFAZ GRAFICA BASE ===================
 
@@ -824,11 +970,167 @@ class App(tk.Tk):
 	def __init__(self):
 		super().__init__()
 		aplicar_estilos_ttk()
-		self.title('Gestión de Horarios Escolares')
+		self.title('Gestión de Horarios Escolares - Login')
 		self.geometry('900x650')
 		self.configure(bg='#f4f6fa')
-		self._crear_menu()
-		self._crear_frame_principal()
+		
+		# Datos del usuario logueado
+		self.usuario_actual = None
+		
+		# Verificar si es el primer inicio (no hay usuarios)
+		if not hay_usuarios():
+			self._configurar_admin_inicial()
+		else:
+			self._mostrar_login()
+
+	def _configurar_admin_inicial(self):
+		"""Configuración inicial del administrador en el primer inicio"""
+		self.withdraw()  # Ocultar ventana principal
+		
+		win = tk.Toplevel(self)
+		win.title('Configuración Inicial')
+		win.geometry('450x380')
+		win.resizable(False, False)
+		win.configure(bg='#f4f6fa')
+		win.protocol('WM_DELETE_WINDOW', lambda: sys.exit())  # Cerrar app si se cancela
+		
+		# Centrar ventana
+		win.update_idletasks()
+		x = (win.winfo_screenwidth() // 2) - (win.winfo_width() // 2)
+		y = (win.winfo_screenheight() // 2) - (win.winfo_height() // 2)
+		win.geometry(f'+{x}+{y}')
+		
+		ttk.Label(win, text='Bienvenido al Sistema', 
+				 font=('Arial', 16, 'bold'), background='#f4f6fa').pack(pady=20)
+		
+		ttk.Label(win, text='Este es el primer inicio del sistema.\nPor favor, cree las credenciales del administrador:', 
+				 font=('Arial', 10), background='#f4f6fa', justify='center').pack(pady=10)
+		
+		# Formulario
+		form = ttk.Frame(win)
+		form.pack(pady=20, padx=40)
+		
+		ttk.Label(form, text='Usuario:', background='#f4f6fa').grid(row=0, column=0, sticky='e', padx=5, pady=8)
+		entry_username = ttk.Entry(form, width=25)
+		entry_username.grid(row=0, column=1, padx=5, pady=8)
+		entry_username.focus_set()
+		
+		ttk.Label(form, text='Contraseña:', background='#f4f6fa').grid(row=1, column=0, sticky='e', padx=5, pady=8)
+		entry_password = ttk.Entry(form, show='*', width=25)
+		entry_password.grid(row=1, column=1, padx=5, pady=8)
+		
+		ttk.Label(form, text='Confirmar:', background='#f4f6fa').grid(row=2, column=0, sticky='e', padx=5, pady=8)
+		entry_confirm = ttk.Entry(form, show='*', width=25)
+		entry_confirm.grid(row=2, column=1, padx=5, pady=8)
+		
+		def crear_admin():
+			username = entry_username.get().strip()
+			password = entry_password.get()
+			confirm = entry_confirm.get()
+			
+			if not username:
+				messagebox.showerror('Error', 'El nombre de usuario no puede estar vacío.', parent=win)
+				return
+			
+			if len(username) < 3:
+				messagebox.showerror('Error', 'El nombre de usuario debe tener al menos 3 caracteres.', parent=win)
+				return
+			
+			if not password:
+				messagebox.showerror('Error', 'La contraseña no puede estar vacía.', parent=win)
+				return
+			
+			if len(password) < 4:
+				messagebox.showerror('Error', 'La contraseña debe tener al menos 4 caracteres.', parent=win)
+				return
+			
+			if password != confirm:
+				messagebox.showerror('Error', 'Las contraseñas no coinciden.', parent=win)
+				return
+			
+			try:
+				crear_usuario(username, password, es_admin=True)
+				messagebox.showinfo('Éxito', f'Administrador "{username}" creado correctamente.', parent=win)
+				win.destroy()
+				self.deiconify()  # Mostrar ventana principal
+				self._mostrar_login()
+			except Exception as e:
+				messagebox.showerror('Error', str(e), parent=win)
+		
+		# Botones
+		frame_btn = ttk.Frame(win)
+		frame_btn.pack(pady=20)
+		ttk.Button(frame_btn, text='Crear Administrador', command=crear_admin, width=20).pack()
+		
+		# Bindings de Enter
+		entry_username.bind('<Return>', lambda e: entry_password.focus_set())
+		entry_password.bind('<Return>', lambda e: entry_confirm.focus_set())
+		entry_confirm.bind('<Return>', lambda e: crear_admin())
+
+	def _mostrar_login(self):
+		"""Muestra la ventana de login"""
+		self.withdraw()  # Ocultar ventana principal
+		
+		win = tk.Toplevel(self)
+		win.title('Inicio de Sesión')
+		win.geometry('420x320')
+		win.resizable(False, False)
+		win.configure(bg='#f4f6fa')
+		win.protocol('WM_DELETE_WINDOW', lambda: sys.exit())  # Cerrar app si se cancela
+		
+		# Centrar ventana
+		win.update_idletasks()
+		x = (win.winfo_screenwidth() // 2) - (win.winfo_width() // 2)
+		y = (win.winfo_screenheight() // 2) - (win.winfo_height() // 2)
+		win.geometry(f'+{x}+{y}')
+		
+		ttk.Label(win, text='Sistema de Gestión de Horarios', 
+				 font=('Arial', 14, 'bold'), background='#f4f6fa').pack(pady=20)
+		
+		ttk.Label(win, text='Ingrese sus credenciales:', 
+				 font=('Arial', 10), background='#f4f6fa').pack(pady=5)
+		
+		# Formulario
+		form = ttk.Frame(win)
+		form.pack(pady=20, padx=40)
+		
+		ttk.Label(form, text='Usuario:', background='#f4f6fa').grid(row=0, column=0, sticky='e', padx=5, pady=10)
+		entry_username = ttk.Entry(form, width=25)
+		entry_username.grid(row=0, column=1, padx=5, pady=10)
+		entry_username.focus_set()
+		
+		ttk.Label(form, text='Contraseña:', background='#f4f6fa').grid(row=1, column=0, sticky='e', padx=5, pady=10)
+		entry_password = ttk.Entry(form, show='*', width=25)
+		entry_password.grid(row=1, column=1, padx=5, pady=10)
+		
+		def iniciar_sesion():
+			username = entry_username.get().strip()
+			password = entry_password.get()
+			
+			if not username or not password:
+				messagebox.showerror('Error', 'Complete todos los campos.', parent=win)
+				return
+			
+			usuario = verificar_usuario(username, password)
+			if usuario:
+				self.usuario_actual = usuario
+				win.destroy()
+				self.deiconify()  # Mostrar ventana principal
+				self.title(f'Gestión de Horarios Escolares - Usuario: {usuario["username"]}')
+				self._crear_menu()
+				self._crear_frame_principal()
+			else:
+				messagebox.showerror('Error', 'Usuario o contraseña incorrectos.', parent=win)
+				entry_password.delete(0, tk.END)
+		
+		# Botones
+		frame_btn = ttk.Frame(win)
+		frame_btn.pack(pady=20)
+		ttk.Button(frame_btn, text='Iniciar Sesión', command=iniciar_sesion, width=18).pack()
+		
+		# Bindings de Enter
+		entry_username.bind('<Return>', lambda e: entry_password.focus_set())
+		entry_password.bind('<Return>', lambda e: iniciar_sesion())
 
 	def _crear_menu(self):
 		menubar = tk.Menu(self)
@@ -845,8 +1147,31 @@ class App(tk.Tk):
 		horarios_menu.add_command(label='Por curso', command=self.mostrar_horarios_curso)
 		horarios_menu.add_command(label='Por profesor', command=self.mostrar_horarios_profesor)
 		menubar.add_cascade(label='Gestión de horarios', menu=horarios_menu)
+		
+		# Menú de Sistema
+		sistema_menu = tk.Menu(menubar, tearoff=0)
+		
+		# Solo administradores ven Gestionar Usuarios
+		if self.usuario_actual and self.usuario_actual.get('es_admin'):
+			sistema_menu.add_command(label='Gestionar Usuarios', command=self.mostrar_gestion_usuarios)
+			sistema_menu.add_separator()
+		
+		# Backups disponibles para todos los usuarios
+		sistema_menu.add_command(label='Crear Backup Manual', command=self.crear_backup_manual)
+		
+		# Ver backups solo para administradores (incluye eliminar)
+		if self.usuario_actual and self.usuario_actual.get('es_admin'):
+			sistema_menu.add_command(label='Ver Backups', command=self.mostrar_lista_backups)
+		
+		sistema_menu.add_separator()
+		sistema_menu.add_command(label='Cambiar Contraseña', command=self.cambiar_mi_password)
+		sistema_menu.add_command(label='Cerrar Sesión', command=self.cerrar_sesion)
+		menubar.add_cascade(label='Sistema', menu=sistema_menu)
 
 	def _crear_frame_principal(self):
+		if hasattr(self, 'frame_principal') and self.frame_principal.winfo_exists():
+			self.frame_principal.destroy()
+		
 		self.frame_principal = ttk.Frame(self)
 		self.frame_principal.pack(fill='both', expand=True)
 		self.label_bienvenida = ttk.Label(
@@ -858,8 +1183,14 @@ class App(tk.Tk):
 		self.label_bienvenida.pack(pady=50)
 
 	def limpiar_frame(self):
-		for widget in self.frame_principal.winfo_children():
-			widget.destroy()
+		if hasattr(self, 'frame_principal') and self.frame_principal.winfo_exists():
+			for widget in self.frame_principal.winfo_children():
+				widget.destroy()
+			# Resetear el frame para evitar desplazamientos
+			self.frame_principal.pack_forget()
+			self.frame_principal.destroy()
+			self.frame_principal = ttk.Frame(self)
+			self.frame_principal.pack(fill='both', expand=True)
 
 
 	def mostrar_materias(self):
@@ -4540,6 +4871,499 @@ class App(tk.Tk):
 		frame_btns.pack(pady=15)
 		ttk.Button(frame_btns, text='Guardar cambios', command=guardar_cambios).grid(row=0, column=0, padx=5)
 		ttk.Button(frame_btns, text='Cancelar', command=win.destroy).grid(row=0, column=1, padx=5)
+
+	def mostrar_gestion_usuarios(self):
+		"""Ventana para gestionar usuarios (solo administradores)"""
+		if not self.usuario_actual or not self.usuario_actual.get('es_admin'):
+			messagebox.showerror('Error', 'No tiene permisos para acceder a esta función.')
+			return
+		
+		self.limpiar_frame()
+		ttk.Label(self.frame_principal, text='Gestión de Usuarios', font=('Arial', 14, 'bold')).pack(pady=10)
+		
+		# Frame principal con dos columnas
+		main_frame = ttk.Frame(self.frame_principal)
+		main_frame.pack(fill='both', expand=True, padx=10, pady=10)
+		main_frame.columnconfigure(1, weight=1)
+		main_frame.rowconfigure(0, weight=1)
+		
+		# Aside izquierdo
+		aside = ttk.Frame(main_frame, width=250)
+		aside.grid(row=0, column=0, sticky='ns', padx=(0, 10))
+		aside.pack_propagate(False)
+		
+		ttk.Label(aside, text='Acciones', font=('Arial', 11, 'bold')).pack(pady=(0, 10))
+		
+		ttk.Button(aside, text='Crear Usuario', command=self._crear_nuevo_usuario, width=22).pack(pady=3)
+		ttk.Button(aside, text='Eliminar Usuario', command=self._eliminar_usuario_seleccionado, width=22).pack(pady=3)
+		ttk.Button(aside, text='Cambiar Contraseña', command=self._cambiar_password_usuario, width=22).pack(pady=3)
+		
+		# Contenido derecho
+		content = ttk.Frame(main_frame)
+		content.grid(row=0, column=1, sticky='nsew')
+		
+		# Tabla de usuarios
+		frame_tabla = ttk.Frame(content)
+		frame_tabla.pack(pady=10, fill='both', expand=True)
+		
+		column_config = {
+			'Usuario': {'width': 200, 'anchor': 'w'},
+			'Tipo': {'width': 120, 'anchor': 'center'},
+			'Fecha Creación': {'width': 180, 'anchor': 'center'}
+		}
+		
+		self.tree_usuarios = crear_treeview(frame_tabla, 
+											('Usuario', 'Tipo', 'Fecha Creación'), 
+											('Usuario', 'Tipo', 'Fecha Creación'),
+											column_config=column_config)
+		
+		self._recargar_usuarios_tree()
+		
+		# Selección en tabla
+		self.tree_usuarios.bind('<<TreeviewSelect>>', self._on_select_usuario)
+		self.usuario_seleccionado_id = None
+	
+	def _recargar_usuarios_tree(self):
+		"""Recarga el árbol de usuarios"""
+		for row in self.tree_usuarios.get_children():
+			self.tree_usuarios.delete(row)
+		
+		usuarios = obtener_usuarios()
+		for usuario in usuarios:
+			tipo = 'Administrador' if usuario['es_admin'] else 'Usuario'
+			fecha = usuario['fecha_creacion'].split()[0] if usuario['fecha_creacion'] else 'N/A'
+			self.tree_usuarios.insert('', 'end', iid=usuario['id'], 
+									 values=(usuario['username'], tipo, fecha))
+	
+	def _on_select_usuario(self, event):
+		"""Maneja la selección de un usuario en el árbol"""
+		sel = self.tree_usuarios.selection()
+		if sel:
+			self.usuario_seleccionado_id = int(sel[0])
+		else:
+			self.usuario_seleccionado_id = None
+	
+	def _crear_nuevo_usuario(self):
+		"""Ventana para crear un nuevo usuario"""
+		win = tk.Toplevel(self)
+		win.title('Crear Nuevo Usuario')
+		win.geometry('450x350')
+		win.resizable(False, False)
+		win.configure(bg='#f4f6fa')
+		win.transient(self)
+		win.grab_set()
+		win.focus_force()
+		
+		ttk.Label(win, text='Crear Nuevo Usuario', font=('Arial', 12, 'bold')).pack(pady=15)
+		
+		# Formulario
+		form = ttk.Frame(win)
+		form.pack(pady=20, padx=40)
+		
+		ttk.Label(form, text='Usuario:').grid(row=0, column=0, sticky='e', padx=5, pady=8)
+		entry_username = ttk.Entry(form, width=25)
+		entry_username.grid(row=0, column=1, padx=5, pady=8)
+		entry_username.focus_set()
+		
+		ttk.Label(form, text='Contraseña:').grid(row=1, column=0, sticky='e', padx=5, pady=8)
+		entry_password = ttk.Entry(form, show='*', width=25)
+		entry_password.grid(row=1, column=1, padx=5, pady=8)
+		
+		ttk.Label(form, text='Confirmar:').grid(row=2, column=0, sticky='e', padx=5, pady=8)
+		entry_confirm = ttk.Entry(form, show='*', width=25)
+		entry_confirm.grid(row=2, column=1, padx=5, pady=8)
+		
+		# Checkbox para admin
+		var_admin = tk.IntVar(value=0)
+		chk_admin = ttk.Checkbutton(form, text='Usuario Administrador', variable=var_admin)
+		chk_admin.grid(row=3, column=0, columnspan=2, pady=10)
+		
+		def guardar():
+			username = entry_username.get().strip()
+			password = entry_password.get()
+			confirm = entry_confirm.get()
+			
+			if not username:
+				messagebox.showerror('Error', 'El nombre de usuario no puede estar vacío.', parent=win)
+				return
+			
+			if len(username) < 3:
+				messagebox.showerror('Error', 'El nombre de usuario debe tener al menos 3 caracteres.', parent=win)
+				return
+			
+			if not password:
+				messagebox.showerror('Error', 'La contraseña no puede estar vacía.', parent=win)
+				return
+			
+			if len(password) < 4:
+				messagebox.showerror('Error', 'La contraseña debe tener al menos 4 caracteres.', parent=win)
+				return
+			
+			if password != confirm:
+				messagebox.showerror('Error', 'Las contraseñas no coinciden.', parent=win)
+				return
+			
+			try:
+				crear_usuario(username, password, es_admin=bool(var_admin.get()))
+				messagebox.showinfo('Éxito', f'Usuario "{username}" creado correctamente.', parent=win)
+				self._recargar_usuarios_tree()
+				win.destroy()
+			except Exception as e:
+				messagebox.showerror('Error', str(e), parent=win)
+		
+		# Botones
+		frame_btns = ttk.Frame(win)
+		frame_btns.pack(pady=15)
+		ttk.Button(frame_btns, text='Crear', command=guardar, width=12).grid(row=0, column=0, padx=5)
+		ttk.Button(frame_btns, text='Cancelar', command=win.destroy, width=12).grid(row=0, column=1, padx=5)
+		
+		# Bindings
+		entry_username.bind('<Return>', lambda e: entry_password.focus_set())
+		entry_password.bind('<Return>', lambda e: entry_confirm.focus_set())
+		entry_confirm.bind('<Return>', lambda e: guardar())
+	
+	def _eliminar_usuario_seleccionado(self):
+		"""Elimina el usuario seleccionado"""
+		if not self.usuario_seleccionado_id:
+			messagebox.showwarning('Atención', 'Seleccione un usuario para eliminar.')
+			return
+		
+		if self.usuario_seleccionado_id == self.usuario_actual['id']:
+			messagebox.showerror('Error', 'No puede eliminar su propio usuario.')
+			return
+		
+		usuarios = obtener_usuarios()
+		usuario = next((u for u in usuarios if u['id'] == self.usuario_seleccionado_id), None)
+		
+		if not usuario:
+			return
+		
+		if not messagebox.askyesno('Confirmar', f'¿Está seguro de eliminar el usuario "{usuario["username"]}"?'):
+			return
+		
+		try:
+			eliminar_usuario(self.usuario_seleccionado_id)
+			messagebox.showinfo('Éxito', 'Usuario eliminado correctamente.')
+			self._recargar_usuarios_tree()
+			self.usuario_seleccionado_id = None
+		except Exception as e:
+			messagebox.showerror('Error', str(e))
+	
+	def _cambiar_password_usuario(self):
+		"""Cambia la contraseña del usuario seleccionado"""
+		if not self.usuario_seleccionado_id:
+			messagebox.showwarning('Atención', 'Seleccione un usuario para cambiar su contraseña.')
+			return
+		
+		usuarios = obtener_usuarios()
+		usuario = next((u for u in usuarios if u['id'] == self.usuario_seleccionado_id), None)
+		
+		if not usuario:
+			return
+		
+		win = tk.Toplevel(self)
+		win.title('Cambiar Contraseña')
+		win.geometry('420x260')
+		win.resizable(False, False)
+		win.configure(bg='#f4f6fa')
+		win.transient(self)
+		win.grab_set()
+		win.focus_force()
+		
+		ttk.Label(win, text=f'Cambiar contraseña de: {usuario["username"]}', 
+				 font=('Arial', 11, 'bold')).pack(pady=15)
+		
+		# Formulario
+		form = ttk.Frame(win)
+		form.pack(pady=15, padx=40)
+		
+		ttk.Label(form, text='Nueva Contraseña:').grid(row=0, column=0, sticky='e', padx=5, pady=8)
+		entry_password = ttk.Entry(form, show='*', width=25)
+		entry_password.grid(row=0, column=1, padx=5, pady=8)
+		entry_password.focus_set()
+		
+		ttk.Label(form, text='Confirmar:').grid(row=1, column=0, sticky='e', padx=5, pady=8)
+		entry_confirm = ttk.Entry(form, show='*', width=25)
+		entry_confirm.grid(row=1, column=1, padx=5, pady=8)
+		
+		def guardar():
+			password = entry_password.get()
+			confirm = entry_confirm.get()
+			
+			if not password:
+				messagebox.showerror('Error', 'La contraseña no puede estar vacía.', parent=win)
+				return
+			
+			if len(password) < 4:
+				messagebox.showerror('Error', 'La contraseña debe tener al menos 4 caracteres.', parent=win)
+				return
+			
+			if password != confirm:
+				messagebox.showerror('Error', 'Las contraseñas no coinciden.', parent=win)
+				return
+			
+			try:
+				cambiar_password(self.usuario_seleccionado_id, password)
+				messagebox.showinfo('Éxito', 'Contraseña actualizada correctamente.', parent=win)
+				win.destroy()
+			except Exception as e:
+				messagebox.showerror('Error', str(e), parent=win)
+		
+		# Botones
+		frame_btns = ttk.Frame(win)
+		frame_btns.pack(pady=15)
+		ttk.Button(frame_btns, text='Cambiar', command=guardar, width=12).grid(row=0, column=0, padx=5)
+		ttk.Button(frame_btns, text='Cancelar', command=win.destroy, width=12).grid(row=0, column=1, padx=5)
+		
+		# Bindings
+		entry_password.bind('<Return>', lambda e: entry_confirm.focus_set())
+		entry_confirm.bind('<Return>', lambda e: guardar())
+	
+	def cambiar_mi_password(self):
+		"""Permite al usuario actual cambiar su propia contraseña"""
+		win = tk.Toplevel(self)
+		win.title('Cambiar Mi Contraseña')
+		win.geometry('420x300')
+		win.resizable(False, False)
+		win.configure(bg='#f4f6fa')
+		win.transient(self)
+		win.grab_set()
+		win.focus_force()
+		
+		ttk.Label(win, text='Cambiar Mi Contraseña', font=('Arial', 11, 'bold')).pack(pady=15)
+		
+		# Formulario
+		form = ttk.Frame(win)
+		form.pack(pady=15, padx=40)
+		
+		ttk.Label(form, text='Contraseña Actual:').grid(row=0, column=0, sticky='e', padx=5, pady=8)
+		entry_actual = ttk.Entry(form, show='*', width=25)
+		entry_actual.grid(row=0, column=1, padx=5, pady=8)
+		entry_actual.focus_set()
+		
+		ttk.Label(form, text='Nueva Contraseña:').grid(row=1, column=0, sticky='e', padx=5, pady=8)
+		entry_password = ttk.Entry(form, show='*', width=25)
+		entry_password.grid(row=1, column=1, padx=5, pady=8)
+		
+		ttk.Label(form, text='Confirmar:').grid(row=2, column=0, sticky='e', padx=5, pady=8)
+		entry_confirm = ttk.Entry(form, show='*', width=25)
+		entry_confirm.grid(row=2, column=1, padx=5, pady=8)
+		
+		def guardar():
+			actual = entry_actual.get()
+			password = entry_password.get()
+			confirm = entry_confirm.get()
+			
+			if not actual:
+				messagebox.showerror('Error', 'Ingrese su contraseña actual.', parent=win)
+				return
+			
+			# Verificar contraseña actual
+			usuario_verificado = verificar_usuario(self.usuario_actual['username'], actual)
+			if not usuario_verificado:
+				messagebox.showerror('Error', 'La contraseña actual es incorrecta.', parent=win)
+				return
+			
+			if not password:
+				messagebox.showerror('Error', 'La nueva contraseña no puede estar vacía.', parent=win)
+				return
+			
+			if len(password) < 4:
+				messagebox.showerror('Error', 'La contraseña debe tener al menos 4 caracteres.', parent=win)
+				return
+			
+			if password != confirm:
+				messagebox.showerror('Error', 'Las contraseñas no coinciden.', parent=win)
+				return
+			
+			try:
+				cambiar_password(self.usuario_actual['id'], password)
+				messagebox.showinfo('Éxito', 'Contraseña actualizada correctamente.', parent=win)
+				win.destroy()
+			except Exception as e:
+				messagebox.showerror('Error', str(e), parent=win)
+		
+		# Botones
+		frame_btns = ttk.Frame(win)
+		frame_btns.pack(pady=15)
+		ttk.Button(frame_btns, text='Cambiar', command=guardar, width=12).grid(row=0, column=0, padx=5)
+		ttk.Button(frame_btns, text='Cancelar', command=win.destroy, width=12).grid(row=0, column=1, padx=5)
+		
+		# Bindings
+		entry_actual.bind('<Return>', lambda e: entry_password.focus_set())
+		entry_password.bind('<Return>', lambda e: entry_confirm.focus_set())
+		entry_confirm.bind('<Return>', lambda e: guardar())
+	
+	def cerrar_sesion(self):
+		"""Cierra la sesión actual y muestra el login nuevamente"""
+		if messagebox.askyesno('Confirmar', '¿Está seguro de que desea cerrar sesión?'):
+			self.usuario_actual = None
+			self.limpiar_frame()
+			# Destruir el menú actual
+			self.config(menu=tk.Menu(self))
+			self._mostrar_login()
+	
+	def crear_backup_manual(self):
+		"""Crea un backup manual de la base de datos con timestamp"""
+		try:
+			backup_path = crear_backup_db(manual=True)
+			backup_name = os.path.basename(backup_path)
+			messagebox.showinfo('Éxito', 
+							   f'Backup creado exitosamente:\n\n{backup_name}\n\n'
+							   f'Ubicación:\n{os.path.dirname(backup_path)}')
+		except Exception as e:
+			messagebox.showerror('Error', f'Error al crear backup:\n{str(e)}')
+	
+	def mostrar_lista_backups(self):
+		"""Muestra la lista de backups disponibles"""
+		if not self.usuario_actual or not self.usuario_actual.get('es_admin'):
+			messagebox.showerror('Error', 'No tiene permisos para acceder a esta función.')
+			return
+		
+		self.limpiar_frame()
+		ttk.Label(self.frame_principal, text='Backups de la Base de Datos', 
+				 font=('Arial', 14, 'bold')).pack(pady=10)
+		
+		# Información sobre backup automático
+		info_frame = ttk.Frame(self.frame_principal)
+		info_frame.pack(pady=5, padx=20, fill='x')
+		
+		ttk.Label(info_frame, 
+				 text='ℹ️  Se crea un backup automático (horarios.bak) cada vez que inicia el programa.',
+				 font=('Segoe UI', 9), foreground='#555').pack(anchor='w')
+		ttk.Label(info_frame,
+				 text='    Los backups manuales incluyen fecha y hora en el nombre.',
+				 font=('Segoe UI', 9), foreground='#555').pack(anchor='w')
+		
+		# Frame principal con dos columnas
+		main_frame = ttk.Frame(self.frame_principal)
+		main_frame.pack(fill='both', expand=True, padx=10, pady=10)
+		main_frame.columnconfigure(1, weight=1)
+		main_frame.rowconfigure(0, weight=1)
+		
+		# Aside izquierdo
+		aside = ttk.Frame(main_frame, width=200)
+		aside.grid(row=0, column=0, sticky='ns', padx=(0, 10))
+		aside.pack_propagate(False)
+		
+		ttk.Label(aside, text='Acciones', font=('Arial', 11, 'bold')).pack(pady=(0, 10))
+		
+		ttk.Button(aside, text='Crear Backup', 
+				  command=self.crear_backup_manual, width=18).pack(pady=3)
+		ttk.Button(aside, text='Actualizar Lista', 
+				  command=lambda: self._recargar_backups_tree(), width=18).pack(pady=3)
+		ttk.Button(aside, text='Abrir Ubicación', 
+				  command=self._abrir_ubicacion_backups, width=18).pack(pady=3)
+		ttk.Button(aside, text='Eliminar Backup', 
+				  command=self._eliminar_backup_seleccionado, width=18).pack(pady=3)
+		
+		# Contenido derecho
+		content = ttk.Frame(main_frame)
+		content.grid(row=0, column=1, sticky='nsew')
+		
+		# Tabla de backups
+		frame_tabla = ttk.Frame(content)
+		frame_tabla.pack(pady=10, fill='both', expand=True)
+		
+		column_config = {
+			'Nombre': {'width': 280, 'anchor': 'w'},
+			'Fecha': {'width': 140, 'anchor': 'center'},
+			'Tamaño': {'width': 100, 'anchor': 'center'}
+		}
+		
+		self.tree_backups = crear_treeview(frame_tabla,
+										  ('Nombre', 'Fecha', 'Tamaño'),
+										  ('Nombre del Archivo', 'Fecha de Creación', 'Tamaño'),
+										  column_config=column_config)
+		
+		self._recargar_backups_tree()
+		
+		# Selección en tabla
+		self.tree_backups.bind('<<TreeviewSelect>>', self._on_select_backup)
+		self.backup_seleccionado = None
+	
+	def _recargar_backups_tree(self):
+		"""Recarga el árbol de backups"""
+		if not hasattr(self, 'tree_backups'):
+			return
+		
+		for row in self.tree_backups.get_children():
+			self.tree_backups.delete(row)
+		
+		try:
+			backups = listar_backups()
+			
+			if not backups:
+				# Insertar mensaje si no hay backups
+				self.tree_backups.insert('', 'end', values=('No hay backups disponibles', '', ''))
+				return
+			
+			for backup in backups:
+				# Formatear tamaño
+				tamaño_kb = backup['tamaño'] / 1024
+				if tamaño_kb < 1024:
+					tamaño_str = f'{tamaño_kb:.1f} KB'
+				else:
+					tamaño_mb = tamaño_kb / 1024
+					tamaño_str = f'{tamaño_mb:.2f} MB'
+				
+				# Insertar en el árbol
+				self.tree_backups.insert('', 'end', 
+										iid=backup['ruta'],
+										values=(backup['nombre'], backup['fecha'], tamaño_str))
+		except Exception as e:
+			messagebox.showerror('Error', f'Error al listar backups:\n{str(e)}')
+	
+	def _on_select_backup(self, event):
+		"""Maneja la selección de un backup"""
+		sel = self.tree_backups.selection()
+		if sel:
+			self.backup_seleccionado = sel[0]
+		else:
+			self.backup_seleccionado = None
+	
+	def _abrir_ubicacion_backups(self):
+		"""Abre el explorador de archivos en la ubicación de los backups"""
+		try:
+			if sys.platform == 'win32':
+				os.startfile(DB_DIR)
+			elif sys.platform == 'darwin':  # macOS
+				os.system(f'open "{DB_DIR}"')
+			else:  # Linux
+				os.system(f'xdg-open "{DB_DIR}"')
+		except Exception as e:
+			messagebox.showerror('Error', f'Error al abrir ubicación:\n{str(e)}')
+	
+	def _eliminar_backup_seleccionado(self):
+		"""Elimina el backup seleccionado"""
+		if not self.backup_seleccionado:
+			messagebox.showwarning('Atención', 'Seleccione un backup para eliminar.')
+			return
+		
+		# Verificar que no sea el backup automático
+		nombre_backup = os.path.basename(self.backup_seleccionado)
+		
+		if nombre_backup == 'horarios.bak':
+			if not messagebox.askyesno('Confirmar',
+									   'Este es el backup automático.\n'
+									   'Se volverá a crear en el próximo inicio.\n\n'
+									   '¿Está seguro de eliminarlo?'):
+				return
+		else:
+			if not messagebox.askyesno('Confirmar', 
+									   f'¿Está seguro de eliminar el backup:\n\n{nombre_backup}?'):
+				return
+		
+		try:
+			if os.path.exists(self.backup_seleccionado):
+				os.remove(self.backup_seleccionado)
+				messagebox.showinfo('Éxito', 'Backup eliminado correctamente.')
+				self._recargar_backups_tree()
+				self.backup_seleccionado = None
+			else:
+				messagebox.showerror('Error', 'El archivo de backup no existe.')
+		except Exception as e:
+			messagebox.showerror('Error', f'Error al eliminar backup:\n{str(e)}')
 
 if __name__ == "__main__":
     import tkinter as tk

@@ -7,7 +7,7 @@
 
 ### 1.1 Identificación del Proyecto
 - **Nombre del Proyecto:** Sistema de Gestión de Horarios Escolares
-- **Versión Actual:** 0.9
+- **Versión Actual:** 1.0
 - **Fecha de Inicio:** 2024
 - **Fecha del Acta:** 8 de Noviembre de 2025
 - **Propietario del Proyecto:** Institución Educativa
@@ -177,7 +177,7 @@ Lo siguiente NO está incluido en el alcance actual:
 
 3. **Código Fuente**
    - Código Python completo
-   - Versión monolítica (v0.9): 3,307 líneas
+   - Versión monolítica (v1.0): 5,374 líneas
    - Versión modular (v2.0): en desarrollo
 
 ### 5.2 Entregables de Documentación
@@ -509,10 +509,10 @@ Este documento establece la base para el inicio formal del proyecto y debe ser a
 
 ### Anexo B: Referencias
 
-- Código fuente: `version 1.0/Horarios_v0.9.py`
+- Código fuente: `version 1.0/SistemaEscolar_v1.py`
 - Documentación de cambios: `version 1.0/DOCUMENTACION_CAMBIOS.md`
 - Plan de refactorización: `version 2.0/PLAN_REFACTORIZACION.md`
-- Base de datos: `horarios.db` (SQLite)
+- Base de datos: `institucion.db` (SQLite)
 
 ---
 

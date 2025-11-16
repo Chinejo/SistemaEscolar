@@ -27,13 +27,13 @@
 | Atributo | Valor |
 |----------|-------|
 | **Nombre** | Sistema de Gestión de Horarios Escolares |
-| **Versión** | 0.9 |
+| **Versión** | 1.0 |
 | **Lenguaje** | Python 3.9+ |
 | **Framework UI** | Tkinter |
 | **Base de Datos** | SQLite3 |
-| **Líneas de Código** | 3,307 |
-| **Archivo Principal** | Horarios_v0.9.py |
-| **Tamaño Aprox.** | ~120 KB (código fuente) |
+| **Líneas de Código** | 5,374 |
+| **Archivo Principal** | SistemaEscolar_v1.py |
+| **Tamaño Aprox.** | ~180 KB (código fuente) |
 | **Plataforma** | Windows (compilable con PyInstaller) |
 
 ### 1.2 Requisitos del Sistema
@@ -55,8 +55,8 @@
 ```
 Programa horarios/
 ├── version 1.0/
-│   ├── Horarios_v0.9.py              # Código fuente principal
-│   ├── horarios.db                    # Base de datos SQLite (creada al ejecutar)
+│   ├── SistemaEscolar_v1.py          # Código fuente principal
+│   ├── institucion.db                 # Base de datos SQLite (creada al ejecutar)
 │   ├── DOCUMENTACION_CAMBIOS.md       # Historial de cambios
 │   ├── COMPILACION.md                 # Guía de compilación
 │   ├── ACTA_DE_CONSTITUCION.md        # Acta del proyecto
@@ -74,13 +74,13 @@ Programa horarios/
 
 ### 2.1 Patrón Arquitectónico
 
-El sistema actual (v0.9) utiliza una **arquitectura monolítica** donde todo el código reside en un único archivo. Aunque funcionalmente completo, se está planificando una refactorización hacia una arquitectura modular (v2.0).
+El sistema actual (v1.0) utiliza una **arquitectura monolítica** donde todo el código reside en un único archivo. Aunque funcionalmente completo, se está planificando una refactorización hacia una arquitectura modular (v2.0).
 
-#### Arquitectura Actual (v0.9)
+#### Arquitectura Actual (v1.0)
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                 Horarios_v0.9.py                        │
+│                 SistemaEscolar_v1.py                    │
 │  ┌───────────────────────────────────────────────────┐  │
 │  │           Capa de Presentación (UI)               │  │
 │  │  - Tkinter Widgets                                │  │
@@ -104,10 +104,10 @@ El sistema actual (v0.9) utiliza una **arquitectura monolítica** donde todo el 
 └─────────────────────────────────────────────────────────┘
                          │
                          ▼
-              ┌──────────────────┐
-              │   horarios.db    │
-              │    (SQLite3)     │
-              └──────────────────┘
+              ┌────────────────────┐
+              │  institucion.db    │
+              │     (SQLite3)      │
+              └────────────────────┘
 ```
 
 ### 2.2 Componentes Principales
@@ -600,7 +600,7 @@ PRAGMA foreign_keys = ON;
 
 ### 4.1 Organización del Código
 
-El archivo `Horarios_v0.9.py` está organizado en las siguientes secciones:
+El archivo `SistemaEscolar_v1.py` está organizado en las siguientes secciones:
 
 ```python
 # 1. ESTILOS Y CONFIGURACIÓN UI (Líneas 1-20)
@@ -1191,7 +1191,20 @@ def eliminar_division(id_: int) -> None
 
 ### 5.9 Gestión de Horarios (Vista por Curso)
 
-#### 5.9.1 crear_horario()
+#### 5.9.1 Motor unificado de horarios (`_upsert_horario`)
+
+Desde la refactorización de noviembre 2025 ambas vistas (por curso y por profesor) delegan sus escrituras a una única función interna `_upsert_horario(conn, division_id, dia, espacio, hora_inicio, hora_fin, materia_id, profesor_id, turno_id)`. Este motor central aplica exactamente las mismas validaciones y ajustes de contadores sin importar desde qué vista se originó el cambio, evitando divergencias y los antiguos errores de constraint UNIQUE.
+
+##### Helpers involucrados
+- `_obtener_turno_de_division(conn, division_id)`: asegura que toda operación utilice el turno real vinculado a la división y rechaza combinaciones inválidas.
+- `_obtener_slot_horario(conn, division_id, dia, espacio)`: localiza el registro existente (si lo hay) para decidir entre UPDATE o INSERT.
+- `_validar_profesor_para_slot(conn, profesor_id, turno_id, materia_id, dia, espacio, division_id, horario_existente_id)`: valida banca de horas, pertenencia al turno y evita superposiciones del docente.
+- `_ajustar_contadores(conn, old_profesor_id, old_materia_id, new_profesor_id, new_materia_id)`: sincroniza `materia.horas_semanales` y `profesor_materia.banca_horas` únicamente cuando hay cambios reales.
+- `_upsert_horario(...)`: combina todo lo anterior, ejecuta el INSERT/UPDATE y devuelve el `id` del registro afectado.
+
+> Importante: cualquier excepción lanzada en estos helpers se propaga hacia la vista correspondiente, por lo que los mensajes que ve el usuario son consistentes en ambas pantallas.
+
+#### 5.9.2 crear_horario()
 
 **Ubicación:** Líneas 801-850
 
@@ -1208,7 +1221,7 @@ def crear_horario(
 ) -> None
 ```
 
-**Descripción:** Crea un nuevo horario para una división/curso.
+**Descripción:** Envuelve a `_upsert_horario` para crear o actualizar un horario de la división seleccionada. Al reutilizar el mismo motor que la vista por profesor garantiza que los contadores y validaciones sean idénticos.
 
 **Parámetros:**
 - `division_id` (int): ID de la división
@@ -1220,10 +1233,12 @@ def crear_horario(
 - `profesor_id` (int): ID del profesor (puede ser None)
 - `turno_id` (int, opcional): ID del turno (se calcula automáticamente si es None)
 
-**Validaciones:**
-1. Verifica que el profesor no esté asignado en el mismo horario en otra división del mismo turno
-2. Valida que el profesor tenga la materia asignada en su banca
-3. Permite horas vacías (None)
+**Validaciones (delegadas en `_upsert_horario`):**
+1. Comprueba que la división pertenezca al turno indicado (o lo infiere automáticamente).
+2. Evita superposición del profesor en el mismo día/espacio dentro del turno.
+3. Verifica que el profesor tenga la materia en su banca antes de ajustar contadores.
+4. Rechaza duplicados sobre la clave única `(division_id, dia, espacio)` y devuelve un mensaje claro para la UI.
+5. Permite horas vacías (`None`) y respeta los valores por defecto de turno si corresponden.
 
 **Efectos Secundarios:**
 - Incrementa `horas_semanales` de la materia en 1
@@ -1249,7 +1264,7 @@ crear_horario(
 )
 ```
 
-#### 5.9.2 obtener_horarios()
+#### 5.9.3 obtener_horarios()
 
 ```python
 def obtener_horarios(division_id: int) -> List[Dict[str, Any]]
@@ -1272,7 +1287,7 @@ def obtener_horarios(division_id: int) -> List[Dict[str, Any]]
 ]
 ```
 
-#### 5.9.3 eliminar_horario()
+#### 5.9.4 eliminar_horario()
 
 ```python
 def eliminar_horario(id_: int) -> None
@@ -1322,7 +1337,7 @@ def crear_horario_profesor(
 ) -> None
 ```
 
-**Descripción:** Crea un nuevo horario desde la vista de profesor.
+**Descripción:** Llama a `_upsert_horario` con los parámetros seleccionados en la vista docente, por lo que crea o actualiza el mismo registro usado por la vista por curso.
 
 **Parámetros:**
 - `profesor_id` (int): ID del profesor
@@ -1334,12 +1349,12 @@ def crear_horario_profesor(
 - `division_id` (int, opcional): ID de la división (puede ser None)
 - `materia_id` (int, opcional): ID de la materia (puede ser None)
 
-**Validaciones:**
-1. El profesor debe estar asignado al turno
-2. El profesor debe tener la materia en su banca (si se especifica materia)
-3. Si se especifica división, debe pertenecer al turno
-4. No debe existir otro horario para esa división en ese día/espacio
-5. No debe haber superposición con otro horario del profesor
+**Validaciones (compartidas con `crear_horario()`):**
+1. Requiere que la división pertenezca al turno (se obtiene del propio registro si el parámetro es `None`).
+2. Comprueba que el profesor esté habilitado para el turno.
+3. Verifica banca de horas antes de incrementar contadores.
+4. Garantiza que la división no tenga otro profesor en el mismo `dia/espacio`.
+5. Bloquea superposiciones del profesor en todo el turno.
 
 **Excepciones:**
 - `Exception`: Si el profesor no está asignado al turno
@@ -1348,7 +1363,7 @@ def crear_horario_profesor(
 - `Exception`: Si ya existe horario para esa división en ese día/espacio
 - `Exception`: Si el profesor ya tiene horario asignado en ese día/espacio
 
-**Nota:** Los datos se guardan en la misma tabla `horario`, permitiendo sincronización automática con la vista por curso.
+**Nota:** Como ambas vistas llaman al mismo motor, los mensajes de error y el ajuste de contadores son exactamente los mismos para usuarios de la vista por curso y por profesor.
 
 #### 5.10.2 obtener_horarios_profesor()
 
@@ -2961,7 +2976,7 @@ def get_base_path():
 ```python
 def get_connection():
     """Obtiene conexión a la base de datos"""
-    db_path = os.path.join(get_base_path(), 'horarios.db')
+    db_path = os.path.join(get_base_path(), 'institucion.db')
     return sqlite3.connect(db_path)
 ```
 
@@ -3060,8 +3075,8 @@ from typing import List, Dict, Any, Optional  # Type hints
 ```
 Programa horarios/
 └── version 1.0/
-    ├── Horarios_v0.9.py        # Archivo principal
-    ├── horarios.db             # Base de datos (auto-creada)
+    ├── SistemaEscolar_v1.py    # Archivo principal
+    ├── institucion.db          # Base de datos (auto-creada)
     └── [documentación]
 ```
 
@@ -3073,19 +3088,19 @@ Programa horarios/
 cd "C:\Chino\Tecnicatura\Metodologia de sistemas\Programa horarios\version 1.0"
 
 # Ejecutar
-python Horarios_v0.9.py
+python SistemaEscolar_v1.py
 ```
 
 **Desde CMD:**
 ```cmd
 cd "C:\Chino\Tecnicatura\Metodologia de sistemas\Programa horarios\version 1.0"
-python Horarios_v0.9.py
+python SistemaEscolar_v1.py
 ```
 
 **Comportamiento Primera Ejecución:**
-1. Se crea archivo `horarios.db` si no existe
+1. Se crea archivo `institucion.db` si no existe
 2. Se ejecuta `init_db()` para crear esquema
-3. Se crea ventana principal vacía (sin datos)
+3. Se muestra pantalla de login para crear usuario administrador
 
 #### 10.1.3 Verificación de Base de Datos
 
@@ -3093,7 +3108,7 @@ python Horarios_v0.9.py
 
 ```powershell
 # Contenido del script
-$dbPath = Join-Path $PSScriptRoot "horarios.db"
+$dbPath = Join-Path $PSScriptRoot "institucion.db"
 
 if (Test-Path $dbPath) {
     Write-Host "Base de datos encontrada: $dbPath" -ForegroundColor Green
@@ -3137,7 +3152,7 @@ pyinstaller --version
 
 ```powershell
 # Configuración
-$scriptPath = "Horarios_v0.9.py"
+$scriptPath = "SistemaEscolar_v1.py"
 $exeName = "SistemaHorarios"
 $iconPath = "icon.ico"  # Opcional
 
@@ -3152,7 +3167,7 @@ Write-Host "Compilando $scriptPath..." -ForegroundColor Cyan
 pyinstaller --onefile `
             --windowed `
             --name $exeName `
-            --add-data "horarios.db;." `
+            --add-data "institucion.db;." `
             $scriptPath
 
 if ($LASTEXITCODE -eq 0) {
@@ -3193,7 +3208,7 @@ dist/
 **Solución:**
 ```powershell
 # Especificar explícitamente
-pyinstaller --onefile --windowed --hidden-import tkinter Horarios_v0.9.py
+pyinstaller --onefile --windowed --hidden-import tkinter SistemaEscolar_v1.py
 ```
 
 **Problema 2: Base de datos no se encuentra**
@@ -3213,8 +3228,8 @@ def get_base_path():
 
 **Solución:** Ejecutar sin `--windowed` para ver errores en consola:
 ```powershell
-pyinstaller --onefile Horarios_v0.9.py
-dist\Horarios_v0.9.exe  # Ver errores en consola
+pyinstaller --onefile SistemaEscolar_v1.py
+dist\SistemaHorarios.exe  # Ver errores en consola
 ```
 
 ### 10.3 Distribución
@@ -3234,8 +3249,8 @@ SistemaHorarios.exe  (~20 MB)
 
 **Distribución:**
 1. Copiar `SistemaHorarios.exe` a carpeta de destino
-2. Primera ejecución crea `horarios.db` en mismo directorio
-3. Usuario puede empezar a usar inmediatamente
+2. Primera ejecución crea `institucion.db` en mismo directorio
+3. Usuario debe configurar usuario administrador inicial
 
 #### 10.3.2 Paquete con Base de Datos Pre-cargada
 
@@ -3243,7 +3258,7 @@ SistemaHorarios.exe  (~20 MB)
 ```
 SistemaHorarios/
 ├── SistemaHorarios.exe
-├── horarios.db           (con datos pre-cargados)
+├── institucion.db        (con datos pre-cargados)
 ├── Leeme.txt
 └── Manual_Usuario.pdf
 ```
@@ -3370,7 +3385,7 @@ def migrate_db():
 **Backup Manual:**
 ```powershell
 # Copiar base de datos
-Copy-Item "horarios.db" "horarios_backup_$(Get-Date -Format 'yyyyMMdd').db"
+Copy-Item "institucion.db" "institucion_backup_$(Get-Date -Format 'yyyyMMdd').db"
 ```
 
 **Backup Programático:**
@@ -3380,9 +3395,9 @@ from datetime import datetime
 
 def crear_backup():
     """Crea backup de la base de datos"""
-    db_path = os.path.join(get_base_path(), 'horarios.db')
+    db_path = os.path.join(get_base_path(), 'institucion.db')
     fecha = datetime.now().strftime('%Y%m%d_%H%M%S')
-    backup_path = os.path.join(get_base_path(), f'horarios_backup_{fecha}.db')
+    backup_path = os.path.join(get_base_path(), f'institucion_backup_{fecha}.db')
     
     try:
         shutil.copy2(db_path, backup_path)
@@ -3395,10 +3410,10 @@ def crear_backup():
 ```powershell
 # Detener aplicación
 # Renombrar DB actual
-Rename-Item "horarios.db" "horarios_old.db"
+Rename-Item "institucion.db" "institucion_old.db"
 
 # Restaurar backup
-Copy-Item "horarios_backup_20251108.db" "horarios.db"
+Copy-Item "institucion_backup_20251108.db" "institucion.db"
 
 # Reiniciar aplicación
 ```
@@ -3421,7 +3436,7 @@ Copy-Item "horarios_backup_20251108.db" "horarios.db"
 
 **Permisos Necesarios:**
 - ✅ Lectura/Escritura en directorio de instalación
-- ✅ Creación de archivos (horarios.db)
+- ✅ Creación de archivos (institucion.db)
 - ❌ NO requiere permisos de administrador
 
 **Ubicación Recomendada:**
@@ -3783,7 +3798,7 @@ finally:
     conn.close()
 
 # O configurar timeout
-conn = sqlite3.connect('horarios.db', timeout=10.0)
+conn = sqlite3.connect('institucion.db', timeout=10.0)
 ```
 
 **Solución Usuario:**
@@ -3799,7 +3814,7 @@ conn = sqlite3.connect('horarios.db', timeout=10.0)
 
 **Solución:**
 1. Cerrar aplicación
-2. Eliminar `horarios.db`
+2. Eliminar `institucion.db`
 3. Reiniciar aplicación (se crea nuevo esquema)
 4. Restaurar desde backup si existe
 
@@ -3864,17 +3879,17 @@ def _guardar_espacio_horario():
 
 #### 12.1.3 Compilación
 
-**PROBLEMA:** "Failed to execute script 'Horarios_v0.9'"
+**PROBLEMA:** "Failed to execute script 'SistemaEscolar_v1'"
 
 **Causa:** Error en tiempo de ejecución que solo aparece en ejecutable.
 
 **Diagnóstico:**
 ```powershell
 # Compilar sin --windowed para ver errores
-pyinstaller --onefile Horarios_v0.9.py
+pyinstaller --onefile SistemaEscolar_v1.py
 
 # Ejecutar desde consola
-dist\Horarios_v0.9.exe
+dist\SistemaHorarios.exe
 ```
 
 **Posibles Causas:**
@@ -3891,7 +3906,7 @@ dist\Horarios_v0.9.exe
 **Optimización:**
 ```powershell
 # Usar UPX para comprimir
-pyinstaller --onefile --windowed --upx-dir=C:\upx Horarios_v0.9.py
+pyinstaller --onefile --windowed --upx-dir=C:\upx SistemaEscolar_v1.py
 ```
 
 **Nota:** UPX puede ser detectado como malware por algunos antivirus.
@@ -3909,7 +3924,7 @@ from datetime import datetime
 
 def backup_automatico():
     """Crea backup si han pasado 7 días desde el último"""
-    db_path = os.path.join(get_base_path(), 'horarios.db')
+    db_path = os.path.join(get_base_path(), 'institucion.db')
     backup_dir = os.path.join(get_base_path(), 'backups')
     
     # Crear directorio de backups
@@ -4054,7 +4069,7 @@ except Exception as e:
     print(f"\nTkinter: ERROR - {e}")
 
 # Base de datos
-db_path = "horarios.db"
+db_path = "institucion.db"
 if os.path.exists(db_path):
     conn = sqlite3.connect(db_path)
     c = conn.cursor()
@@ -4084,7 +4099,7 @@ print("\n=== FIN DEL DIAGNÓSTICO ===")
 #### 12.4.1 Proceso de Actualización
 
 **Pasos:**
-1. Crear backup de `horarios.db`
+1. Crear backup de `institucion.db`
 2. Cerrar aplicación
 3. Reemplazar `SistemaHorarios.exe`
 4. Ejecutar migraciones de BD (si aplica)
@@ -4094,15 +4109,15 @@ print("\n=== FIN DEL DIAGNÓSTICO ===")
 ```powershell
 # actualizar.ps1
 $backupDir = "backups"
-$dbFile = "horarios.db"
+$dbFile = "institucion.db"
 $exeFile = "SistemaHorarios.exe"
 
 # 1. Backup
 New-Item -ItemType Directory -Force -Path $backupDir
 $fecha = Get-Date -Format "yyyyMMdd_HHmmss"
-Copy-Item $dbFile "$backupDir\horarios_$fecha.db"
+Copy-Item $dbFile "$backupDir\institucion_$fecha.db"
 
-Write-Host "Backup creado: $backupDir\horarios_$fecha.db" -ForegroundColor Green
+Write-Host "Backup creado: $backupDir\institucion_$fecha.db" -ForegroundColor Green
 
 # 2. Detener procesos
 Get-Process -Name SistemaHorarios -ErrorAction SilentlyContinue | Stop-Process
@@ -4244,7 +4259,7 @@ El plan de refactorización para la **versión 2.0** incluye:
 
 **Para Administradores del Sistema:**
 - El sistema es estable y puede usarse en producción
-- Realizar backups periódicos de `horarios.db`
+- Realizar backups periódicos de `institucion.db`
 - Mantener documentación actualizada para usuarios finales
 - Capacitar usuarios en flujo de trabajo jerárquico
 

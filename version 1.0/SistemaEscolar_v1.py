@@ -41,10 +41,14 @@ def get_base_path():
 		return os.path.dirname(os.path.abspath(__file__))
 
 DB_DIR = get_base_path()
-DB_NAME = os.path.join(DB_DIR, 'horarios.db')
+DB_NAME = os.path.join(DB_DIR, 'institucion.db')
 
 def get_connection():
-	return sqlite3.connect(DB_NAME)
+	conn = sqlite3.connect(DB_NAME, timeout=15)
+	# Mantener restricciones referenciales y evitar bloqueos por lecturas prolongadas
+	conn.execute('PRAGMA foreign_keys = ON')
+	conn.execute('PRAGMA busy_timeout = 15000')
+	return conn
 
 # Decorador para centralizar manejo de conexión y commit
 def db_operation(func):
@@ -563,52 +567,111 @@ def eliminar_division(id_: int):
 	conn.commit()
 	conn.close()
 
-# CRUD Horario
-def crear_horario(division_id: int, dia: str, espacio: int, hora_inicio: str, hora_fin: str, materia_id: int, profesor_id: int, turno_id: int = None):
-	conn = get_connection()
+# ==== Helpers internos para la tabla de horarios ====
+
+def _obtener_turno_de_division(conn, division_id: int) -> int:
 	c = conn.cursor()
-	# Obtener el turno de la división actual si no se proporciona
-	if turno_id is None:
-		c.execute('SELECT turno_id FROM division WHERE id=?', (division_id,))
-		row = c.fetchone()
-		if not row:
-			conn.close()
-			raise Exception('División no encontrada.')
-		turno_id = row[0]
+	c.execute('SELECT turno_id FROM division WHERE id=?', (division_id,))
+	row = c.fetchone()
+	if not row:
+		raise Exception('División no encontrada.')
+	return row[0]
 
-	# Si se proporcionó profesor, validar superposición solo entonces
-	if profesor_id is not None:
-		c.execute('''
-			SELECT h.id FROM horario h
-			JOIN division d ON h.division_id = d.id
-			WHERE h.dia=? AND h.espacio=? AND h.profesor_id=? AND d.turno_id=? AND h.division_id != ?
-		''', (dia, espacio, profesor_id, turno_id, division_id))
-		if c.fetchone():
-			conn.close()
-			raise Exception('El profesor ya está asignado en ese horario en otra división del mismo turno.')
 
-	# Validar que el profesor tenga la materia asignada solo si ambos ids están presentes
-	if profesor_id is not None and materia_id is not None:
+def _obtener_slot_horario(conn, division_id: int, dia: str, espacio: int):
+	c = conn.cursor()
+	c.execute('SELECT id, materia_id, profesor_id FROM horario WHERE division_id=? AND dia=? AND espacio=?',
+		  (division_id, dia, espacio))
+	row = c.fetchone()
+	if row:
+		return {'id': row[0], 'materia_id': row[1], 'profesor_id': row[2]}
+	return None
+
+
+def _ajustar_contadores(conn, old_profesor_id: Optional[int], old_materia_id: Optional[int],
+					   new_profesor_id: Optional[int], new_materia_id: Optional[int]):
+	if old_profesor_id == new_profesor_id and old_materia_id == new_materia_id:
+		return  # No hay cambios
+	c = conn.cursor()
+	if old_materia_id and old_materia_id != new_materia_id:
+		c.execute('UPDATE materia SET horas_semanales = horas_semanales - 1 WHERE id=?', (old_materia_id,))
+	if new_materia_id and new_materia_id != old_materia_id:
+		c.execute('UPDATE materia SET horas_semanales = horas_semanales + 1 WHERE id=?', (new_materia_id,))
+
+	if old_profesor_id and old_materia_id and (old_profesor_id != new_profesor_id or old_materia_id != new_materia_id):
+		c.execute('UPDATE profesor_materia SET banca_horas = banca_horas - 1 WHERE profesor_id=? AND materia_id=?',
+				  (old_profesor_id, old_materia_id))
+	if new_profesor_id and new_materia_id and (old_profesor_id != new_profesor_id or old_materia_id != new_materia_id):
+		c.execute('UPDATE profesor_materia SET banca_horas = banca_horas + 1 WHERE profesor_id=? AND materia_id=?',
+				  (new_profesor_id, new_materia_id))
+
+
+def _validar_profesor_para_slot(conn, profesor_id: int, turno_id: int, materia_id: Optional[int],
+								 dia: str, espacio: int, division_id: int, horario_existente_id: Optional[int]):
+	c = conn.cursor()
+	c.execute('SELECT 1 FROM profesor_turno WHERE profesor_id=? AND turno_id=?', (profesor_id, turno_id))
+	if not c.fetchone():
+		raise Exception('El profesor no está asignado al turno seleccionado.')
+
+	if materia_id is not None:
 		c.execute('SELECT 1 FROM profesor_materia WHERE profesor_id=? AND materia_id=?', (profesor_id, materia_id))
 		if not c.fetchone():
-			conn.close()
 			raise Exception('El profesor no tiene asignada la materia seleccionada.')
 
-	# Permitir hora_inicio/hora_fin vacías (NULL)
+	slot_id = horario_existente_id if horario_existente_id is not None else -1
+	c.execute('''SELECT h.id FROM horario h
+			 JOIN division d ON h.division_id = d.id
+			 WHERE h.profesor_id=? AND h.dia=? AND h.espacio=? AND d.turno_id=? AND h.id != ?''',
+		  (profesor_id, dia, espacio, turno_id, slot_id))
+	if c.fetchone():
+		raise Exception('El profesor ya está asignado en ese horario en otra división del mismo turno.')
+
+
+def _upsert_horario(conn, division_id: int, dia: str, espacio: int,
+				   hora_inicio: Optional[str], hora_fin: Optional[str],
+				   materia_id: Optional[int], profesor_id: Optional[int], turno_id: Optional[int]):
+	c = conn.cursor()
+	div_turno_id = _obtener_turno_de_division(conn, division_id)
+	if turno_id is None:
+		turno_id = div_turno_id
+	elif turno_id != div_turno_id:
+		raise Exception('La división seleccionada no pertenece al turno indicado.')
+
+	slot = _obtener_slot_horario(conn, division_id, dia, espacio)
+	horario_id = slot['id'] if slot else None
+	old_materia = slot['materia_id'] if slot else None
+	old_profesor = slot['profesor_id'] if slot else None
+
+	if profesor_id is not None:
+		_validar_profesor_para_slot(conn, profesor_id, turno_id, materia_id, dia, espacio, division_id, horario_id)
+
+	_ajustar_contadores(conn, old_profesor, old_materia, profesor_id, materia_id)
+
 	hora_inicio_db = hora_inicio if hora_inicio else None
 	hora_fin_db = hora_fin if hora_fin else None
 
-	c.execute('''INSERT INTO horario (division_id, dia, espacio, hora_inicio, hora_fin, materia_id, profesor_id, turno_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+	if horario_id:
+		c.execute('''UPDATE horario SET hora_inicio=?, hora_fin=?, materia_id=?, profesor_id=?, turno_id=?
+				  WHERE id=?''',
+			  (hora_inicio_db, hora_fin_db, materia_id, profesor_id, turno_id, horario_id))
+		return horario_id
+	else:
+		c.execute('''INSERT INTO horario (division_id, dia, espacio, hora_inicio, hora_fin, materia_id, profesor_id, turno_id)
+				  VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
 			  (division_id, dia, espacio, hora_inicio_db, hora_fin_db, materia_id, profesor_id, turno_id))
+		return c.lastrowid
 
-	# Sumar horas a materia y banca de profesor
-	# Sumar horas a materia y banca de profesor si corresponde
-	if materia_id is not None:
-		c.execute('UPDATE materia SET horas_semanales = horas_semanales + 1 WHERE id=?', (materia_id,))
-	if profesor_id is not None and materia_id is not None:
-		c.execute('UPDATE profesor_materia SET banca_horas = banca_horas + 1 WHERE profesor_id=? AND materia_id=?', (profesor_id, materia_id))
-	conn.commit()
-	conn.close()
+# CRUD Horario
+def crear_horario(division_id: int, dia: str, espacio: int, hora_inicio: str, hora_fin: str, materia_id: int, profesor_id: int, turno_id: int = None):
+	conn = get_connection()
+	try:
+		_upsert_horario(conn, division_id, dia, espacio, hora_inicio, hora_fin, materia_id, profesor_id, turno_id)
+		conn.commit()
+	except Exception:
+		conn.rollback()
+		raise
+	finally:
+		conn.close()
 
 def obtener_horarios(division_id: int) -> List[Dict[str, Any]]:
 	conn = get_connection()
@@ -669,64 +732,24 @@ def eliminar_turno_espacio_hora(turno_id: int, espacio: int):
 	conn.close()
 
 # CRUD Horario por Profesor (usa la misma tabla 'horario' que la vista por curso)
-def crear_horario_profesor(profesor_id: int, turno_id: int, dia: str, espacio: int, hora_inicio: str, hora_fin: str, division_id: int = None, materia_id: int = None):
-	"""
-	Crea un horario para un profesor. Si division_id se proporciona, valida que pertenezca al turno.
-	Los datos se guardan en la tabla 'horario' para que se sincronicen con la vista por curso.
-	"""
+def crear_horario_profesor(profesor_id: int, turno_id: int, dia: str, espacio: int,
+						  hora_inicio: str, hora_fin: str,
+						  division_id: int = None, materia_id: int = None):
+	"""Sincroniza las cargas desde la vista por profesor usando la misma lógica que la vista por curso."""
+	if division_id is None:
+		raise Exception('Seleccione el curso/división antes de guardar el horario del profesor.')
+	if materia_id is None:
+		raise Exception('Seleccione la materia dictada por el profesor.')
+
 	conn = get_connection()
-	c = conn.cursor()
-	
-	# Validar que el profesor esté asignado al turno
-	c.execute('SELECT 1 FROM profesor_turno WHERE profesor_id=? AND turno_id=?', (profesor_id, turno_id))
-	if not c.fetchone():
+	try:
+		_upsert_horario(conn, division_id, dia, espacio, hora_inicio, hora_fin, materia_id, profesor_id, turno_id)
+		conn.commit()
+	except Exception:
+		conn.rollback()
+		raise
+	finally:
 		conn.close()
-		raise Exception('El profesor no está asignado a este turno.')
-	
-	# Validar que el profesor tenga la materia asignada solo si ambos están presentes
-	if materia_id is not None and profesor_id is not None:
-		c.execute('SELECT 1 FROM profesor_materia WHERE profesor_id=? AND materia_id=?', (profesor_id, materia_id))
-		if not c.fetchone():
-			conn.close()
-			raise Exception('El profesor no tiene asignada esta materia.')
-	
-	# Si se especifica división, validar que pertenezca al turno
-	if division_id is not None:
-		c.execute('SELECT turno_id FROM division WHERE id=?', (division_id,))
-		row = c.fetchone()
-		if not row:
-			conn.close()
-			raise Exception('División no encontrada.')
-		if row[0] != turno_id:
-			conn.close()
-			raise Exception('La división no pertenece al turno seleccionado.')
-		
-		# Si hay división, validar que no exista ya un horario para esa división en ese día/espacio
-		c.execute('''SELECT 1 FROM horario 
-					 WHERE division_id=? AND dia=? AND espacio=?''', 
-				  (division_id, dia, espacio))
-		if c.fetchone():
-			conn.close()
-			raise Exception('Ya existe un horario asignado para esta división en este día y espacio.')
-	
-	# Validar que no haya superposición en el horario del profesor (mismo turno, día y espacio)
-	c.execute('''SELECT 1 FROM horario 
-				 WHERE profesor_id=? AND turno_id=? AND dia=? AND espacio=?''', 
-			  (profesor_id, turno_id, dia, espacio))
-	if c.fetchone():
-		conn.close()
-		raise Exception('El profesor ya tiene un horario asignado en este día y espacio en este turno.')
-	
-	# Permitir hora_inicio/hora_fin vacías (NULL)
-	hora_inicio_db = hora_inicio if hora_inicio else None
-	hora_fin_db = hora_fin if hora_fin else None
-	
-	c.execute('''INSERT INTO horario (division_id, dia, espacio, hora_inicio, hora_fin, materia_id, profesor_id, turno_id) 
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-			  (division_id, dia, espacio, hora_inicio_db, hora_fin_db, materia_id, profesor_id, turno_id))
-	
-	conn.commit()
-	conn.close()
 
 def obtener_horarios_profesor(profesor_id: int, turno_id: int) -> List[Dict[str, Any]]:
 	"""
@@ -774,10 +797,10 @@ def crear_backup_db(manual=False) -> str:
 	if manual:
 		# Backup manual con timestamp completo
 		timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-		backup_name = f'horarios_backup_{timestamp}.bak'
+		backup_name = f'institucion_backup_{timestamp}.bak'
 	else:
 		# Backup automático - siempre sobrescribe el mismo archivo
-		backup_name = 'horarios.bak'
+		backup_name = 'institucion.bak'
 	
 	backup_path = os.path.join(DB_DIR, backup_name)
 	
@@ -2698,11 +2721,10 @@ class App(tk.Tk):
 				conn_tmp = get_connection()
 				cur_tmp = conn_tmp.cursor()
 				cur_tmp.execute('SELECT turno_id FROM division WHERE id=?', (division_id,))
-				r = cur_tmp.fetchone()
+				row = cur_tmp.fetchone()
 				conn_tmp.close()
-				if r:
-					turno_id_tmp = r[0]
-					default_h = obtener_turno_espacio_hora(turno_id_tmp, espacio)
+				if row:
+					default_h = obtener_turno_espacio_hora(row[0], espacio)
 					if default_h:
 						if not hora_inicio:
 							hora_inicio = default_h.get('hora_inicio') or ''
@@ -2710,72 +2732,17 @@ class App(tk.Tk):
 							hora_fin = default_h.get('hora_fin') or ''
 			mid = materia_ids.get(materia) if materia else None
 			pid = profesor_ids.get(profesor) if profesor else None
-			# Obtener turno_id de la división
 			turno_nombre = self.cb_turno_horario.get()
+			if not turno_nombre:
+				messagebox.showerror('Error', 'Seleccione el turno del curso antes de guardar.')
+				return
 			turno_id = self.turnos_dict_horario[turno_nombre]
-			
 			try:
-				# Si existe un horario, actualizar en lugar de eliminar y crear
-				if h_existente:
-					# Validar antes de actualizar
-					if pid is not None:
-						conn_tmp = get_connection()
-						c_tmp = conn_tmp.cursor()
-						c_tmp.execute('''
-							SELECT h.id FROM horario h
-							JOIN division d ON h.division_id = d.id
-							WHERE h.dia=? AND h.espacio=? AND h.profesor_id=? AND d.turno_id=? AND h.division_id != ?
-						''', (dia, espacio, pid, turno_id, division_id))
-						if c_tmp.fetchone():
-							conn_tmp.close()
-							raise Exception('El profesor ya está asignado en ese horario en otra división del mismo turno.')
-						
-						if mid is not None:
-							c_tmp.execute('SELECT 1 FROM profesor_materia WHERE profesor_id=? AND materia_id=?', (pid, mid))
-							if not c_tmp.fetchone():
-								conn_tmp.close()
-								raise Exception('El profesor no tiene asignada la materia seleccionada.')
-						conn_tmp.close()
-					
-					# Actualizar el horario existente
-					conn_upd = get_connection()
-					c_upd = conn_upd.cursor()
-					# Ajustar contadores si cambiaron materia o profesor
-					old_mid = materia_ids.get(h_existente['materia'], None)
-					old_pid = profesor_ids.get(h_existente['profesor'], None)
-					
-					if old_mid != mid:
-						if old_mid is not None:
-							c_upd.execute('UPDATE materia SET horas_semanales = horas_semanales - 1 WHERE id=?', (old_mid,))
-						if mid is not None:
-							c_upd.execute('UPDATE materia SET horas_semanales = horas_semanales + 1 WHERE id=?', (mid,))
-					
-					if old_pid != pid or old_mid != mid:
-						if old_pid is not None and old_mid is not None:
-							c_upd.execute('UPDATE profesor_materia SET banca_horas = banca_horas - 1 WHERE profesor_id=? AND materia_id=?', (old_pid, old_mid))
-						if pid is not None and mid is not None:
-							c_upd.execute('UPDATE profesor_materia SET banca_horas = banca_horas + 1 WHERE profesor_id=? AND materia_id=?', (pid, mid))
-					
-					# Actualizar el registro de horario
-					hora_inicio_db = hora_inicio if hora_inicio else None
-					hora_fin_db = hora_fin if hora_fin else None
-					c_upd.execute('''UPDATE horario SET hora_inicio=?, hora_fin=?, materia_id=?, profesor_id=?, turno_id=? 
-									WHERE id=?''', 
-								(hora_inicio_db, hora_fin_db, mid, pid, turno_id, h_existente['id']))
-					conn_upd.commit()
-					conn_upd.close()
-				else:
-					# Crear nuevo horario
-					crear_horario(division_id, dia, espacio, hora_inicio, hora_fin, mid, pid, turno_id)
-				
+				crear_horario(division_id, dia, espacio, hora_inicio, hora_fin, mid, pid, turno_id)
 				self._dibujar_grilla_horario_curso()
 				win.destroy()
 			except Exception as e:
-				msg = str(e)
-				if 'ya está asignado en ese horario en otra división' in msg or 'no tiene asignada la materia' in msg:
-					messagebox.showerror('Error', msg)
-				else:
-					messagebox.showerror('Error', msg)
+				messagebox.showerror('Error', str(e))
 
 		def eliminar_espacio(event=None):
 			if h_existente:
@@ -3237,49 +3204,40 @@ class App(tk.Tk):
 							on_anio_selected()  # Actualizar divisiones
 							cb_division.set(h_existente['division'])
 
-		# Guardar cambios previos para rollback en caso de error
-		datos_previos = None
-		if h_existente:
-			# Buscar los IDs originales
-			div_id = None
-			if h_existente['division']:
-				divisiones = obtener_divisiones()
-				div_encontrada = next((d for d in divisiones if d['nombre'] == h_existente['division']), None)
-				if div_encontrada:
-					div_id = div_encontrada['id']
-			mat_id = materia_ids.get(h_existente['materia']) if h_existente['materia'] else None
-			datos_previos = {
-				'hora_inicio': h_existente['hora_inicio'],
-				'hora_fin': h_existente['hora_fin'],
-				'division_id': div_id,
-				'materia_id': mat_id
-			}
-
 		def guardar(event=None):
 			hora_inicio = entry_inicio.get().strip()
 			hora_fin = entry_fin.get().strip()
 			division = cb_division.get().strip()
 			materia = cb_materia.get().strip()
+			plan_nombre_sel = cb_plan.get().strip()
+			anio_nombre_sel = cb_anio.get().strip()
+
+			if not plan_nombre_sel:
+				messagebox.showerror('Error', 'Seleccione el plan de estudios para poder asignar el curso.')
+				return
+			if not anio_nombre_sel:
+				messagebox.showerror('Error', 'Seleccione el año del curso antes de guardar.')
+				return
+			if not division:
+				messagebox.showerror('Error', 'Seleccione la división del curso para sincronizar el horario con la vista por curso.')
+				return
+			if not materia:
+				messagebox.showerror('Error', 'Seleccione la materia dictada por el profesor.')
+				return
 
 			try:
-				if h_existente:
-					eliminar_horario_profesor(h_existente['id'])
-				
-				div_id = division_ids.get(division) if division else None
-				mat_id = materia_ids.get(materia) if materia else None
-				
+				div_id = division_ids.get(division)
+				if div_id is None:
+					messagebox.showerror('Error', 'La división seleccionada no pertenece al turno/plan elegido.')
+					return
+				mat_id = materia_ids.get(materia)
+				if mat_id is None:
+					messagebox.showerror('Error', 'La materia seleccionada no es válida.')
+					return
 				crear_horario_profesor(profesor_id, turno_id, dia, espacio, hora_inicio, hora_fin, div_id, mat_id)
 				self._dibujar_grilla_horario_profesor()
 				win.destroy()
 			except Exception as e:
-				# Rollback en caso de error
-				if datos_previos:
-					try:
-						crear_horario_profesor(profesor_id, turno_id, dia, espacio, 
-											 datos_previos['hora_inicio'], datos_previos['hora_fin'], 
-											 datos_previos['division_id'], datos_previos['materia_id'])
-					except Exception:
-						pass
 				messagebox.showerror('Error', str(e))
 
 		def eliminar_espacio(event=None):
@@ -5229,7 +5187,7 @@ class App(tk.Tk):
 		info_frame.pack(pady=5, padx=20, fill='x')
 		
 		ttk.Label(info_frame, 
-				 text='ℹ️  Se crea un backup automático (horarios.bak) cada vez que inicia el programa.',
+				 text='ℹ️  Se crea un backup automático (institucion.bak) cada vez que inicia el programa.',
 				 font=('Segoe UI', 9), foreground='#555').pack(anchor='w')
 		ttk.Label(info_frame,
 				 text='    Los backups manuales incluyen fecha y hora en el nombre.',
@@ -5343,7 +5301,7 @@ class App(tk.Tk):
 		# Verificar que no sea el backup automático
 		nombre_backup = os.path.basename(self.backup_seleccionado)
 		
-		if nombre_backup == 'horarios.bak':
+		if nombre_backup == 'institucion.bak':
 			if not messagebox.askyesno('Confirmar',
 									   'Este es el backup automático.\n'
 									   'Se volverá a crear en el próximo inicio.\n\n'

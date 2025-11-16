@@ -309,7 +309,7 @@ if hasattr(self, 'cb_profesor_horario') and self.cb_profesor_horario.get():
 - ✅ La funcionalidad "Aplicar a horarios existentes" ahora funciona como se esperaba
 
 **Archivos Modificados:**
-- `Horarios_v0.9.py` (líneas 2398-2414 aproximadamente)
+- `SistemaEscolar_v1.py` (líneas 2398-2414 aproximadamente)
 
 ---
 
@@ -392,7 +392,7 @@ c.execute('''DELETE FROM horario
 - ✅ Conserva los horarios que tienen división o materia asignadas
 
 **Archivos Modificados:**
-- `Horarios_v0.9.py` (líneas 1993 y 2367-2419 aproximadamente)
+- `SistemaEscolar_v1.py` (líneas 1993 y 2367-2419 aproximadamente)
 
 ---
 
@@ -436,7 +436,7 @@ en_vista_profesor = (hasattr(self, 'cb_turno_horario_prof') and    # ← Nuevo: 
 - ✅ No hay interferencia entre las dos vistas
 
 **Archivos Modificados:**
-- `Horarios_v0.9.py` (líneas 2372-2377 aproximadamente)
+- `SistemaEscolar_v1.py` (líneas 2372-2377 aproximadamente)
 
 ---
 
@@ -553,7 +553,7 @@ en_vista_curso = (hasattr(self, 'cb_turno_horario') and
 ### Resumen de Cambios Técnicos
 
 **Archivos Modificados:**
-- `Horarios_v0.9.py`:
+- `SistemaEscolar_v1.py`:
   - Línea 2244: Tamaño de ventana aumentado a `280x480`
   - Líneas 2313-2321: Nuevos checkboxes `apply_actual_var` y `apply_todos_var`
   - Líneas 2373-2518: Lógica mejorada de aplicación con detección de contexto
@@ -604,7 +604,7 @@ elif en_vista_curso:  # ← Cambiado de 'else' a 'elif en_vista_curso'
 - ✅ La detección de contexto es precisa
 
 **Archivos Modificados:**
-- `Horarios_v0.9.py` (línea 2495: cambio de `else` a `elif en_vista_curso`)
+- `SistemaEscolar_v1.py` (línea 2495: cambio de `else` a `elif en_vista_curso`)
 
 ---
 
@@ -670,7 +670,7 @@ self.cb_division_horario.get() and           # ✓ Llama .get() después
 - ✅ Funciona perfectamente tanto en vista por curso como en vista por profesor
 
 **Archivos Modificados:**
-- `Horarios_v0.9.py` (líneas 2382-2395: orden de validaciones corregido)
+- `SistemaEscolar_v1.py` (líneas 2382-2395: orden de validaciones corregido)
 
 ---
 
@@ -752,7 +752,7 @@ self.cb_profesor_horario.bind('<Return>', seleccionar_primera_coincidencia)
 - ✅ No interfiere con el autocompletado automático
 
 **Archivos Modificados:**
-- `Horarios_v0.9.py` (líneas 1850-1860 aproximadamente)
+- `SistemaEscolar_v1.py` (líneas 1850-1860 aproximadamente)
 
 ---
 
@@ -909,7 +909,7 @@ self.cb_profesor_horario.bind('<BackSpace>', limpiar_y_enfocar)
 - ✅ **Productivo**: Ideal para uso frecuente
 
 **Archivos Modificados:**
-- `Horarios_v0.9.py`:
+- `SistemaEscolar_v1.py`:
   - Líneas 1810-1817: Función `ajustar_ancho_combobox`
   - Líneas 1829-1843: Actualización de `on_turno_selected_prof`
   - Líneas 1845-1852: Actualización de `on_profesor_selected`
@@ -1055,7 +1055,7 @@ ToolTip(lbl_buscar,
    - Menos tiempo de capacitación
 
 **Archivos Modificados:**
-- `Horarios_v0.9.py`:
+- `SistemaEscolar_v1.py`:
   - Líneas 728-752: Nueva clase `ToolTip`
   - Líneas 1827-1835: Label "Buscar agente:" con tooltip
 
@@ -1150,7 +1150,7 @@ self.cb_profesor_horario.bind('<BackSpace>', limpiar_y_enfocar)
 - ✅ **Consistente**: Comportamiento predecible
 
 **Archivos Modificados:**
-- `Horarios_v0.9.py`:
+- `SistemaEscolar_v1.py`:
   - Líneas 1920-1930: Función `limpiar_y_enfocar` actualizada (comentario modificado)
   - Líneas 1950-1951: Ambos bindings apuntan a la misma función
   - Eliminadas: ~14 líneas de la función `borrar_completo`

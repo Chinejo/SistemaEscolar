@@ -1,5 +1,5 @@
 # MANUAL DE USUARIO
-## Sistema de Gestión de Horarios Escolares v0.9
+## Sistema de Gestión de Horarios Escolares v1.0
 
 ---
 
@@ -9,29 +9,30 @@
 1. [Bienvenida](#1-bienvenida)
 2. [Requisitos del Sistema](#2-requisitos-del-sistema)
 3. [Instalación y Primer Inicio](#3-instalación-y-primer-inicio)
-4. [Conceptos Básicos](#4-conceptos-básicos)
-5. [Navegación de la Interfaz](#5-navegación-de-la-interfaz)
+4. [Sistema de Autenticación](#4-sistema-de-autenticación)
+5. [Conceptos Básicos](#5-conceptos-básicos)
+6. [Navegación de la Interfaz](#6-navegación-de-la-interfaz)
 
 ### PARTE 2: CONFIGURACIÓN INICIAL
-6. [Configuración Inicial del Sistema](#6-configuración-inicial-del-sistema)
-7. [Gestión de Turnos](#7-gestión-de-turnos)
-8. [Gestión de Planes de Estudio](#8-gestión-de-planes-de-estudio)
-9. [Gestión de Materias/Obligaciones](#9-gestión-de-materiasobligaciones)
+7. [Configuración Inicial del Sistema](#7-configuración-inicial-del-sistema)
+8. [Gestión de Turnos](#8-gestión-de-turnos)
+9. [Gestión de Planes de Estudio](#9-gestión-de-planes-de-estudio)
+10. [Gestión de Materias/Obligaciones](#10-gestión-de-materiasobligaciones)
 
 ### PARTE 3: GESTIÓN DE PERSONAL Y CURSOS
-10. [Gestión de Personal Docente](#10-gestión-de-personal-docente)
-11. [Gestión de Cursos/Divisiones](#11-gestión-de-cursosdivisiones)
+11. [Gestión de Personal Docente](#11-gestión-de-personal-docente)
+12. [Gestión de Cursos/Divisiones](#12-gestión-de-cursosdivisiones)
 
 ### PARTE 4: GESTIÓN DE HORARIOS
-12. [Configuración de Horas por Turno](#12-configuración-de-horas-por-turno)
-13. [Horarios por Curso](#13-horarios-por-curso)
-14. [Horarios por Profesor](#14-horarios-por-profesor)
+13. [Configuración de Horas por Turno](#13-configuración-de-horas-por-turno)
+14. [Horarios por Curso](#14-horarios-por-curso)
+15. [Horarios por Profesor](#15-horarios-por-profesor)
 
 ### PARTE 5: OPERACIONES AVANZADAS Y TROUBLESHOOTING
-15. [Operaciones Avanzadas](#15-operaciones-avanzadas)
-16. [Preguntas Frecuentes](#16-preguntas-frecuentes)
-17. [Solución de Problemas](#17-solución-de-problemas)
-18. [Glosario](#18-glosario)
+16. [Operaciones Avanzadas](#16-operaciones-avanzadas)
+17. [Preguntas Frecuentes](#17-preguntas-frecuentes)
+18. [Solución de Problemas](#18-solución-de-problemas)
+19. [Glosario](#19-glosario)
 
 ---
 
@@ -130,7 +131,7 @@ Para tener expectativas claras, el sistema **NO** incluye:
 
 El programa necesita:
 - ✅ **Lectura y escritura** en la carpeta donde se encuentra instalado
-- ✅ **Creación de archivos** (para la base de datos `horarios.db`)
+- ✅ **Creación de archivos** (para la base de datos `institucion.db`)
 
 **Recomendación:** Instalar en `Mis Documentos` o en `C:\SistemaHorarios` (evitar `Archivos de programa` que requiere permisos de administrador para escribir).
 
@@ -195,9 +196,9 @@ Si recibió un instalador (`SistemaHorarios_Setup.exe`):
    └────────────────────────────────────────┘
    ```
 
-3. Se creará automáticamente el archivo `horarios.db` en la misma carpeta del programa
+3. Se creará automáticamente el archivo `institucion.db` en la misma carpeta del programa
 
-4. El sistema está listo para usar (pero sin datos aún)
+4. En el primer inicio, deberá configurar el usuario administrador inicial
 
 ### 3.3 Estructura de archivos
 
@@ -206,43 +207,225 @@ Después del primer inicio, verá:
 ```
 SistemaHorarios/
 ├── SistemaHorarios.exe    (programa ejecutable)
-└── horarios.db            (base de datos - creado automáticamente)
+├── institucion.db         (base de datos - creado automáticamente)
+└── institucion.bak        (backup automático)
 ```
 
 **Importante:**
-- ⚠️ **NUNCA elimine ni modifique manualmente** el archivo `horarios.db`
+- ⚠️ **NUNCA elimine ni modifique manualmente** el archivo `institucion.db`
 - ✅ Este archivo contiene TODOS los datos del sistema
 - ✅ Para hacer respaldo, simplemente copie este archivo
 
-### 3.4 Creación de respaldos
+### 3.4 Sistema de respaldos
 
-**Es MUY IMPORTANTE hacer copias de seguridad periódicas.**
+**⚠️ Es MUY IMPORTANTE hacer copias de seguridad periódicas de sus datos.**
 
-#### Respaldo manual simple:
-
-1. **Cerrar** el programa
-2. **Copiar** el archivo `horarios.db`
-3. **Pegar** en una carpeta de respaldo con la fecha:
-   ```
-   Ejemplo: 
-   C:\Respaldos\horarios_2025-11-08.db
-   ```
-
-#### Frecuencia recomendada:
-- 📅 **Diario:** Si se realizan muchos cambios
-- 📅 **Semanal:** Para uso moderado
-- 📅 **Mensual:** Mínimo recomendado
-
-#### Restauración desde respaldo:
-
-1. **Cerrar** el programa
-2. **Eliminar** (o renombrar) el archivo `horarios.db` actual
-3. **Copiar** el respaldo y renombrarlo a `horarios.db`
-4. **Abrir** el programa nuevamente
+El sistema ofrece DOS tipos de respaldo para proteger su información:
 
 ---
 
-## 4. CONCEPTOS BÁSICOS
+#### 🔄 Respaldo automático
+
+**Qué hace:**
+- El sistema crea automáticamente un backup llamado `institucion.bak` cada vez que inicia sesión exitosamente
+- Este respaldo se realiza ANTES de cargar cualquier dato en el sistema
+- Protege contra errores durante la sesión de trabajo actual
+
+**Características:**
+- 📁 **Ubicación:** Misma carpeta del programa
+- 📝 **Nombre:** `institucion.bak` (siempre el mismo)
+- 🔁 **Sobrescritura:** Reemplaza el backup anterior en cada inicio
+- ⚡ **Automático:** No requiere acción del usuario
+
+**Limitación:** Solo mantiene UNA copia (la más reciente antes del último inicio)
+
+---
+
+#### 💾 Respaldo manual desde el menú
+
+**Cuándo usar:**
+- Antes de hacer cambios masivos (eliminar turnos, planes, etc.)
+- Al finalizar la carga de datos del ciclo lectivo
+- Periódicamente (semanal o mensual según uso)
+- Antes de actualizaciones del sistema
+
+**Pasos para crear backup manual:**
+
+1. **Acceder al menú:**
+   - Menú superior → **Sistema** → **Crear Backup Manual**
+
+2. **El sistema mostrará un mensaje:**
+   ```
+   ✅ Backup creado exitosamente:
+   institucion_backup_20251111_143522.bak
+   ```
+
+3. **Verificar el archivo:**
+   - Ir a la carpeta del programa
+   - Buscar archivo con formato: `institucion_backup_YYYYMMDD_HHMMSS.bak`
+   - Ejemplo: `institucion_backup_20251111_143522.bak`
+     - 2025-11-11 = Fecha (11 de noviembre de 2025)
+     - 14:35:22 = Hora exacta de creación
+
+**Ventajas del backup manual:**
+- ✅ Conserva múltiples copias con fecha/hora
+- ✅ Puede crear tantos como necesite
+- ✅ No se sobrescriben automáticamente
+- ✅ Fácil identificar cuándo se hizo cada copia
+
+**Recomendación:** Organice los backups manuales en carpetas por mes:
+```
+C:\Respaldos\
+├── 2025-11\
+│   ├── institucion_backup_20251101_100000.bak
+│   ├── institucion_backup_20251108_150000.bak
+│   └── institucion_backup_20251115_160000.bak
+└── 2025-12\
+    └── institucion_backup_20251201_090000.bak
+```
+
+---
+
+#### 📁 Respaldo manual por copia de archivo
+
+Si prefiere el método tradicional:
+
+1. **Cerrar** completamente el programa
+2. **Copiar** el archivo `institucion.db`
+3. **Pegar** en carpeta de respaldo con nombre descriptivo:
+   ```
+   Ejemplo: 
+   C:\Respaldos\institucion_ciclo2025.db
+   C:\Respaldos\institucion_2025-11-11.db
+   ```
+
+---
+
+#### 🔧 Restauración desde respaldo
+
+**Desde backup automático o manual:**
+
+1. **Cerrar** el programa completamente
+2. **Localizar** el archivo de backup que desea restaurar:
+   - `institucion.bak` (último backup automático)
+   - `institucion_backup_YYYYMMDD_HHMMSS.bak` (backup manual específico)
+3. **Renombrar/Eliminar** el archivo `institucion.db` actual (puede renombrarlo a `institucion_old.db` por precaución)
+4. **Copiar** el backup y renombrarlo a `institucion.db`
+5. **Abrir** el programa y verificar los datos
+
+**Ejemplo práctico:**
+```
+Antes:
+├── SistemaEscolar_v1.py
+├── institucion.db              (corrupto o con errores)
+├── institucion.bak
+└── institucion_backup_20251108_150000.bak
+
+Después de restaurar:
+├── SistemaEscolar_v1.py
+├── institucion.db              (copia restaurada desde backup)
+├── institucion_old.db          (el corrupto, renombrado)
+├── institucion.bak
+└── institucion_backup_20251108_150000.bak
+```
+
+---
+
+#### 📋 Frecuencia recomendada
+
+| Tipo de backup | Cuándo | Frecuencia |
+|----------------|--------|------------|
+| **Automático** | Cada inicio de sesión | Automático |
+| **Manual (menú)** | Antes de cambios importantes | Según necesidad |
+| **Manual (menú)** | Mantenimiento regular | Semanal |
+| **Manual (copia)** | Fin de período/ciclo | Mensual/Ciclo lectivo |
+
+---
+
+#### ⚠️ Recordatorios importantes
+
+- 🔒 El backup automático solo guarda la sesión anterior
+- 💾 Los backups manuales le dan control total sobre versiones
+- 📅 Nombre los backups manuales de forma descriptiva si los mueve de carpeta
+- ✅ Verifique ocasionalmente que los backups se están creando
+- 🗂️ Mantenga backups importantes en ubicaciones externas (USB, nube)
+
+---
+
+## 4. SISTEMA DE AUTENTICACIÓN
+
+### 4.1 Primer inicio - Configuración del administrador
+
+Al ejecutar el programa por primera vez, se mostrará una ventana de configuración inicial donde debe:
+
+1. **Crear el usuario administrador**:
+   - Ingresar un nombre de usuario (mínimo 3 caracteres)
+   - Establecer una contraseña segura (mínimo 6 caracteres)
+   - Confirmar la contraseña
+
+2. **Importante**: 
+   - Guarde estas credenciales en un lugar seguro
+   - El usuario administrador tiene acceso completo al sistema
+   - No es posible recuperar la contraseña si la olvida
+
+### 4.2 Inicio de sesión
+
+En cada arranque del programa:
+
+1. Ingrese su **nombre de usuario**
+2. Ingrese su **contraseña**
+3. Presione **Enter** o haga clic en **"Iniciar Sesión"**
+
+**Seguridad**:
+- Después de 3 intentos fallidos, el programa se cerrará automáticamente
+- Las contraseñas se almacenan cifradas con hash SHA-256
+- La sesión se mantiene hasta cerrar el programa
+
+### 4.3 Gestión de usuarios
+
+El administrador puede gestionar usuarios desde el menú:
+
+**Herramientas → Gestión de Usuarios**
+
+**Funciones disponibles**:
+
+1. **Crear nuevo usuario**:
+   - Clic en "Agregar Usuario"
+   - Completar: nombre de usuario, contraseña
+   - Confirmar contraseña
+
+2. **Cambiar contraseña**:
+   - Seleccionar usuario en la lista
+   - Clic en "Cambiar Contraseña"
+   - Ingresar y confirmar nueva contraseña
+
+3. **Eliminar usuario**:
+   - Seleccionar usuario en la lista
+   - Clic en "Eliminar Usuario"
+   - Confirmar la acción
+
+**Restricciones**:
+- No se puede eliminar al administrador principal
+- Los nombres de usuario deben ser únicos
+- Las contraseñas deben tener al menos 6 caracteres
+
+### 4.4 Respaldo automático al iniciar
+
+El sistema realiza automáticamente un respaldo de la base de datos al iniciar sesión:
+
+- **Ubicación**: Misma carpeta que el programa
+- **Nombre**: `institucion.bak`
+- **Momento**: Después del login exitoso, antes de cargar datos
+- **Sobrescritura**: Reemplaza el respaldo anterior automáticamente
+
+Este respaldo automático protege contra:
+- Errores de usuario durante la sesión
+- Cierres inesperados del programa
+- Corrupción de datos durante el uso
+
+---
+
+## 5. CONCEPTOS BÁSICOS
 
 ### 4.1 Jerarquía de datos
 
@@ -404,9 +587,9 @@ Cuando intente hacer algo no permitido, verá mensajes como:
 
 ---
 
-## 5. NAVEGACIÓN DE LA INTERFAZ
+## 6. NAVEGACIÓN DE LA INTERFAZ
 
-### 5.1 Ventana principal
+### 6.1 Ventana principal
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -552,7 +735,7 @@ Gestión de horarios
 
 # PARTE 2: CONFIGURACIÓN INICIAL
 
-## 6. CONFIGURACIÓN INICIAL DEL SISTEMA
+## 7. CONFIGURACIÓN INICIAL DEL SISTEMA
 
 ### 6.1 Orden recomendado de configuración
 
@@ -642,7 +825,7 @@ A lo largo de este manual, usaremos como ejemplo una institución ficticia con:
 
 ---
 
-## 7. GESTIÓN DE TURNOS
+## 8. GESTIÓN DE TURNOS
 
 ### 7.1 ¿Qué son los turnos?
 
@@ -756,7 +939,7 @@ Se abrirá una ventana emergente:
 
 ---
 
-## 8. GESTIÓN DE PLANES DE ESTUDIO
+## 9. GESTIÓN DE PLANES DE ESTUDIO
 
 ### 8.1 ¿Qué son los planes de estudio?
 
@@ -963,7 +1146,7 @@ Bachiller en Ciencias Naturales
 
 ---
 
-## 9. GESTIÓN DE MATERIAS/OBLIGACIONES
+## 10. GESTIÓN DE MATERIAS/OBLIGACIONES
 
 ### 9.1 ¿Qué son las materias?
 
@@ -1178,7 +1361,7 @@ Nuevas: Programación I, Programación II, Base de Datos, Redes
 
 # PARTE 3: GESTIÓN DE PERSONAL Y CURSOS
 
-## 10. GESTIÓN DE PERSONAL DOCENTE
+## 11. GESTIÓN DE PERSONAL DOCENTE
 
 ### 10.1 ¿Qué es el personal docente?
 
@@ -1527,7 +1710,7 @@ Agregar: Mañana
 
 ---
 
-## 11. GESTIÓN DE CURSOS/DIVISIONES
+## 12. GESTIÓN DE CURSOS/DIVISIONES
 
 ### 11.1 ¿Qué son las divisiones?
 
@@ -1854,7 +2037,7 @@ Turno Mañana - Bachiller - 1° Año - A  ← ERROR: duplicado
 
 # PARTE 4: GESTIÓN DE HORARIOS
 
-## 12. CONFIGURACIÓN DE HORAS POR TURNO
+## 13. CONFIGURACIÓN DE HORAS POR TURNO
 
 ### 12.1 ¿Qué es la configuración de horas?
 
@@ -2157,7 +2340,7 @@ R: No, solo configure los que realmente usa. Deje el resto vacío.
 
 ---
 
-## 13. HORARIOS POR CURSO
+## 14. HORARIOS POR CURSO
 
 ### 13.1 ¿Qué es la vista "Por curso"?
 
@@ -2597,7 +2780,7 @@ R: No directamente. Debe asignar manualmente o usar configuración de horas para
 
 ---
 
-## 14. HORARIOS POR PROFESOR
+## 15. HORARIOS POR PROFESOR
 
 ### 14.1 ¿Qué es la vista "Por profesor"?
 
@@ -2934,9 +3117,24 @@ asignado en ese día y espacio."
 - Seleccione otro horario
 - O elimine el horario conflictivo primero
 
+#### 14.9.5 Mensaje "Restricción UNIQUE" o error de base de datos
+
+**¿Por qué aparece?** Desde noviembre 2025 ambos formularios escriben en la misma fila de la base. Si otro usuario (o usted mismo desde la vista por curso) ya guardó ese `día + espacio`, SQLite devuelve:
+
+```
+❌ Error: "Restricción UNIQUE falló: horario.division_id, dia, espacio"
+```
+
+**Cómo resolverlo:**
+- Verifique en la vista **Por curso** si la división ya tiene algo cargado en ese casillero.
+- Si abrió dos ventanas de edición sobre la misma celda, cierre una y vuelva a abrir para refrescar los datos antes de guardar.
+- Use el botón **Eliminar** desde cualquiera de las vistas si realmente necesita reemplazar el contenido.
+
+> Tip: estos errores ya no dejan registros huérfanos; basta con ajustar el dato en cualquiera de las dos vistas y volver a guardar.
+
 ### 14.10 Sincronización entre vistas
 
-**Característica clave:** Los cambios en esta vista se reflejan INMEDIATAMENTE en la vista "Por curso" y viceversa.
+**Característica clave:** Ahora ambas vistas comparten el mismo motor de guardado, por lo que cualquier cambio se refleja inmediatamente y con las mismas validaciones.
 
 **Ejemplo de sincronización:**
 
@@ -2953,10 +3151,11 @@ Lunes 1ª: Matemática - García
 ```
 
 **Si cambia en cualquier vista:**
-- El cambio se guarda en la misma tabla de BD
-- Al actualizar la otra vista, verá el cambio reflejado
+- Se ejecuta el mismo conjunto de validaciones (turno correcto, banca de horas, choques de profesor/división).
+- El ajuste de contadores (`horas_semanales` y `banca_horas`) se hace una sola vez y queda visible en los módulos de Materias y Personal.
+- Basta con refrescar (cerrar y volver a abrir la vista) para ver el cambio en el otro panel; no hace falta recargar la aplicación.
 
-**No hay duplicación de datos:** Ambas vistas consultan la misma tabla `horario`.
+**No hay duplicación de datos:** Ambas vistas consultan la tabla `horario` y comparten el mismo registro, por eso los errores y mensajes coinciden.
 
 ### 14.11 Casos de uso prácticos
 
@@ -3146,9 +3345,9 @@ R: Sí, los espacios vacíos indican que el profesor no tiene clases en ese hora
 
 # PARTE 5: OPERACIONES AVANZADAS Y TROUBLESHOOTING
 
-## 15. OPERACIONES AVANZADAS
+## 16. OPERACIONES AVANZADAS
 
-### 15.1 Limpiar horarios vacíos
+### 16.1 Limpiar horarios vacíos
 
 **Qué hace:** Elimina todos los horarios que NO tienen materia NI profesor asignados.
 
@@ -3174,26 +3373,171 @@ Mensaje: "X horarios vacíos eliminados."
 
 **Importante:** Esta acción NO se puede deshacer. Haga backup antes si no está seguro.
 
-### 15.2 Exportar/Respaldar horarios
+### 16.2 Gestión avanzada de respaldos
 
-**Método actual:** Respaldo completo de la base de datos.
+#### Backup manual con timestamp
 
 **Pasos:**
-1. Cerrar el programa
-2. Copiar el archivo `horarios.db`
-3. Pegarlo en carpeta de respaldos con fecha:
+
+1. **Abrir el menú:**
+   - Menú → **Sistema** → **Crear Backup Manual**
+
+2. **El sistema responde:**
    ```
-   horarios_2025-11-08.db
+   ✅ Backup creado exitosamente:
+   institucion_backup_20251111_143522.bak
+   ```
+
+3. **Verificar ubicación:**
+   - Misma carpeta del programa
+   - Formato de nombre: `institucion_backup_YYYYMMDD_HHMMSS.bak`
+
+**Ventajas:**
+- ✅ Múltiples versiones guardadas (no se sobrescriben)
+- ✅ Timestamp automático para identificar cuándo se hizo
+- ✅ No requiere cerrar el programa
+- ✅ Rápido y seguro
+
+#### Organización de backups
+
+**Sugerencia de estructura:**
+
+```
+C:\Respaldos_SistemaEscolar\
+│
+├── 2025_Ciclo_Lectivo\
+│   ├── 01_Enero\
+│   │   └── institucion_backup_20250115_100000.bak (Inicio ciclo)
+│   ├── 03_Marzo\
+│   │   ├── institucion_backup_20250305_093000.bak (Antes de cambios)
+│   │   └── institucion_backup_20250320_160000.bak (Ajustes finales)
+│   └── 12_Diciembre\
+│       └── institucion_backup_20251220_120000.bak (Cierre ciclo)
+│
+└── Backups_Automaticos\
+    └── institucion.bak (copia del último automático)
+```
+
+#### Estrategia de backup recomendada
+
+**Para instituciones pequeñas (1-200 alumnos):**
+- 🔵 Automático: Cada inicio (predeterminado)
+- 🟢 Manual semanal: Viernes antes de cerrar
+- 🟡 Manual mensual: Último día del mes
+- 🔴 Manual crítico: Antes de cambios importantes
+
+**Para instituciones medianas/grandes:**
+- 🔵 Automático: Cada inicio (predeterminado)
+- 🟢 Manual diario: Al finalizar jornada
+- 🟡 Manual semanal: Guardado en ubicación externa
+- 🔴 Manual mensual: Copia en nube o dispositivo externo
+
+#### Tipos de backup según momento
+
+| Momento | Tipo recomendado | Nombre sugerido |
+|---------|------------------|-----------------|
+| Inicio ciclo lectivo | Manual (menú) | Guardar en carpeta especial |
+| Trabajo diario | Automático | `institucion.bak` |
+| Antes de cambios masivos | Manual (menú) | Conservar varios días |
+| Fin de semana | Manual (menú) | Mover a carpeta externa |
+| Fin de ciclo | Manual (copia DB) | `institucion_ciclo2025.db` |
+
+#### Verificación de integridad
+
+**Cómo verificar que un backup está funcionando:**
+
+1. **Verificar tamaño del archivo:**
+   - `institucion.db` principal: Ej. 1,024 KB
+   - `institucion.bak`: Debe ser similar (±10 KB)
+   - Si `institucion.bak` = 0 KB → Backup falló
+
+2. **Probar restauración (opcional):**
+   - Crear carpeta temporal: `C:\Temp_Test\`
+   - Copiar `institucion.bak` allí
+   - Renombrar a `institucion.db`
+   - Intentar abrir con una copia del programa
+   - Si abre correctamente → Backup válido
+
+3. **Revisión mensual:**
+   - Verificar que existen backups del mes anterior
+   - Verificar fechas en nombres de archivo
+   - Eliminar backups muy antiguos (>6 meses) si hay problemas de espacio
+
+#### Recuperación ante desastres
+
+**Escenario 1: Corrupción durante la sesión**
+- Restaurar desde `institucion.bak` (última sesión correcta)
+
+**Escenario 2: Error hace varios días**
+- Buscar backup manual del día correcto
+- Formato: `institucion_backup_YYYYMMDD_HHMMSS.bak`
+
+**Escenario 3: Pérdida total de archivos**
+- Recuperar desde ubicación externa
+- Usar backup más reciente disponible
+
+**Escenario 4: Migración a nueva computadora**
+- Copiar `institucion.db` O cualquier `.bak`
+- Instalar programa en nueva PC
+- Restaurar backup
+
+#### Método tradicional: Copia manual de archivo
+
+Si prefiere control total:
+
+**Pasos:**
+1. Cerrar el programa completamente
+2. Copiar el archivo `institucion.db`
+3. Pegarlo en carpeta de respaldos con nombre descriptivo:
+   ```
+   Ejemplos:
+   institucion_2025-11-08.db
+   institucion_ciclo_2025.db
+   institucion_antes_cambios.db
    ```
 
 **Para restaurar:**
-1. Cerrar el programa
-2. Reemplazar `horarios.db` con el respaldo
-3. Abrir el programa
+1. Cerrar el programa completamente
+2. Renombrar/eliminar el `institucion.db` actual
+3. Copiar el respaldo y renombrarlo a `institucion.db`
+4. Abrir el programa y verificar datos
 
-**Nota para versión futura:** Exportación a PDF o Excel no implementada en v0.9.
+**Ventajas del método tradicional:**
+- ✅ Control total del nombre del archivo
+- ✅ Puede guardar en cualquier ubicación
+- ✅ Útil para transferir entre computadoras
+- ✅ Compatible con cualquier herramienta de backup externa
 
-### 15.3 Verificar integridad de datos
+**Desventajas:**
+- ❌ Requiere cerrar el programa
+- ❌ Proceso más lento y manual
+- ❌ Posibilidad de error humano en nombres
+
+---
+
+### 16.3 Mejores prácticas de respaldo
+
+**Regla 3-2-1 para datos críticos:**
+- **3** copias de sus datos (original + 2 backups)
+- **2** medios diferentes (PC + USB, por ejemplo)
+- **1** copia fuera del sitio (nube, otra ubicación física)
+
+**Aplicado al sistema:**
+```
+1. ORIGINAL: institucion.db (carpeta del programa)
+2. BACKUP LOCAL: institucion.bak + backups manuales con timestamp
+3. BACKUP EXTERNO: Copia en USB actualizada semanalmente
+4. BACKUP EN NUBE: Copia en Google Drive/OneDrive mensualmente
+```
+
+**Recordatorio importante:**
+⚠️ Los backups son inútiles si nunca verifica que funcionan. Realice una prueba de restauración al menos una vez por ciclo lectivo.
+
+---
+
+**Nota para versión futura:** Exportación directa a PDF o Excel no implementada en v1.0.
+
+### 16.4 Verificar integridad de datos
 
 **Indicadores de problemas:**
 - Contadores de horas no coinciden con horarios asignados
@@ -3222,7 +3566,7 @@ Mensaje: "X horarios vacíos eliminados."
 2. Verificar que cada celda tenga solo una división
 3. Si hay texto superpuesto, hay un error de datos
 
-### 15.4 Optimizar horarios
+### 16.5 Optimizar horarios
 
 **Objetivo:** Minimizar huecos y optimizar distribución.
 
@@ -3257,7 +3601,7 @@ Intente agrupar sus horarios en los mismos días
 (facilita traslados y preparación)
 ```
 
-### 15.5 Copiar horarios entre divisiones
+### 16.6 Copiar horarios entre divisiones
 
 **Nota:** El sistema NO tiene función de copia automática.
 
@@ -3269,9 +3613,9 @@ Intente agrupar sus horarios en los mismos días
 
 **Alternativa:** Usar configuración de horas para acelerar la entrada.
 
-### 15.6 Reportes y consultas
+### 16.7 Reportes y consultas
 
-**Reportes disponibles en v0.9:**
+**Reportes disponibles en v1.0:**
 - ❌ Exportación a PDF: No disponible
 - ❌ Exportación a Excel: No disponible
 - ❌ Impresión optimizada: No disponible
@@ -3286,9 +3630,9 @@ Intente agrupar sus horarios en los mismos días
 
 ---
 
-## 16. PREGUNTAS FRECUENTES (FAQ)
+## 17. PREGUNTAS FRECUENTES (FAQ)
 
-### 16.1 Problemas de instalación
+### 17.1 Problemas de instalación
 
 **P: El programa no inicia después de descargarlo.**
 R: Verifique que Windows no lo haya bloqueado. Click derecho → Propiedades → Desbloquear.
@@ -3296,10 +3640,10 @@ R: Verifique que Windows no lo haya bloqueado. Click derecho → Propiedades →
 **P: Antivirus marca el archivo como amenaza.**
 R: Es un falso positivo común con ejecutables de PyInstaller. Agregue excepción en el antivirus.
 
-**P: Aparece error "archivo horarios.db en uso".**
+**P: Aparece error "archivo institucion.db en uso".**
 R: Cierre todas las instancias del programa. Si persiste, reinicie la PC.
 
-### 16.2 Problemas con datos
+### 17.2 Problemas con datos
 
 **P: No aparecen opciones en los filtros de división.**
 R: Verifique que creó: Turnos → Planes → Asignó planes a turnos → Creó años → Asignó materias.
@@ -3308,12 +3652,12 @@ R: Verifique que creó: Turnos → Planes → Asignó planes a turnos → Creó 
 R: Es un problema grave. Haga backup y contacte soporte. Puede intentar recrear horarios afectados.
 
 **P: Eliminé algo por error, ¿puedo recuperarlo?**
-R: Solo si tiene un backup reciente. No hay función de "deshacer" en v0.9.
+R: Solo si tiene un backup reciente. No hay función de "deshacer" en v1.0. Use la funcionalidad de backup manual (Sistema → Crear Backup Manual) regularmente para prevenir pérdidas.
 
 **P: Tengo datos duplicados (dos materias "Matemática").**
 R: No debería ser posible por validación UNIQUE. Si ocurre, elimine el duplicado.
 
-### 16.3 Problemas con horarios
+### 17.3 Problemas con horarios
 
 **P: No puedo asignar un profesor a un horario.**
 R: Verifique: 1) El profesor tiene la materia en su banca, 2) El profesor está asignado al turno, 3) El profesor no está ocupado en ese horario en otra división.
@@ -3327,7 +3671,7 @@ R: No debería pasar (están sincronizados). Intente cerrar y volver a abrir la 
 **P: Configuré las horas pero no se aplican.**
 R: Debe marcar los checkboxes de aplicación. O solo afecta a horarios NUEVOS.
 
-### 16.4 Rendimiento
+### 17.4 Rendimiento
 
 **P: El programa va lento.**
 R: Con bases de datos grandes (+1000 horarios) puede haber lentitud. Cierre otros programas para liberar RAM.
@@ -3335,10 +3679,10 @@ R: Con bases de datos grandes (+1000 horarios) puede haber lentitud. Cierre otro
 **P: La grilla de horarios tarda en cargar.**
 R: Normal con muchos horarios. Use filtros para limitar la cantidad de datos mostrados.
 
-### 16.5 Varios
+### 17.5 Varios
 
 **P: ¿Puedo usar el sistema en múltiples PC?**
-R: Sí, pero debe copiar el archivo `horarios.db` entre PCs. No hay sincronización automática.
+R: Sí, pero debe copiar el archivo `institucion.db` entre PCs. No hay sincronización automática.
 
 **P: ¿Cuántos horarios puede manejar el sistema?**
 R: Testeado hasta 5,000 horarios sin problemas. Límite teórico de SQLite es millones.
@@ -3351,9 +3695,9 @@ R: No, solo Windows desktop.
 
 ---
 
-## 17. SOLUCIÓN DE PROBLEMAS
+## 18. SOLUCIÓN DE PROBLEMAS
 
-### 17.1 El programa no inicia
+### 18.1 El programa no inicia
 
 **Síntomas:**
 - Doble clic no hace nada
@@ -3383,7 +3727,7 @@ Esto mostrará mensajes de error si los hay.
 - Descargar nueva copia
 - Extraer en ubicación diferente
 
-### 17.2 Base de datos corrupta
+### 18.2 Base de datos corrupta
 
 **Síntomas:**
 - Errores al guardar datos
@@ -3394,23 +3738,23 @@ Esto mostrará mensajes de error si los hay.
 
 **Solución 1:** Restaurar desde backup
 - Cerrar programa
-- Reemplazar `horarios.db` con backup reciente
+- Reemplazar `institucion.db` con backup reciente
 - Abrir programa
 
 **Solución 2:** Intentar reparación (avanzado)
 ```powershell
 # Instalar SQLite
 # Ejecutar:
-sqlite3 horarios.db "PRAGMA integrity_check;"
-sqlite3 horarios.db ".recover" | sqlite3 horarios_recuperado.db
+sqlite3 institucion.db "PRAGMA integrity_check;"
+sqlite3 institucion.db ".recover" | sqlite3 institucion_recuperado.db
 ```
 
 **Solución 3:** Recrear base de datos
-- Renombrar `horarios.db` a `horarios_viejo.db`
-- Abrir programa (crea nuevo `horarios.db` vacío)
+- Renombrar `institucion.db` a `institucion_viejo.db`
+- Abrir programa (crea nuevo `institucion.db` vacío)
 - Recargar datos manualmente
 
-### 17.3 Errores al asignar horarios
+### 18.3 Errores al asignar horarios
 
 **Síntoma:** Mensaje de error al guardar horario.
 
@@ -3426,7 +3770,7 @@ sqlite3 horarios.db ".recover" | sqlite3 horarios_recuperado.db
 | "UNIQUE constraint failed" | Horario duplicado | Editar existente en lugar de crear |
 | "La división no pertenece..." | División de otro turno | Verificar filtros |
 
-### 17.4 Interfaz se ve mal
+### 18.4 Interfaz se ve mal
 
 **Síntomas:**
 - Botones cortados
@@ -3447,7 +3791,7 @@ sqlite3 horarios.db ".recover" | sqlite3 horarios_recuperado.db
 - Click en botón maximizar
 - O presionar Win + Flecha arriba
 
-### 17.5 Datos desincronizados
+### 18.5 Datos desincronizados
 
 **Síntomas:**
 - Vista "Por curso" muestra diferentes datos que "Por profesor"
@@ -3460,10 +3804,10 @@ sqlite3 horarios.db ".recover" | sqlite3 horarios_recuperado.db
 4. Verificar nuevamente
 
 **Si persiste:**
-- Hacer backup de `horarios.db`
+- Hacer backup de `institucion.db`
 - Contactar soporte con descripción detallada
 
-### 17.6 Problemas de rendimiento
+### 18.6 Problemas de rendimiento
 
 **Síntomas:**
 - Programa lento
@@ -3480,7 +3824,7 @@ sqlite3 horarios.db ".recover" | sqlite3 horarios_recuperado.db
 - Cerrar programa
 - Ejecutar en terminal:
 ```powershell
-sqlite3 horarios.db "VACUUM;"
+sqlite3 institucion.db "VACUUM;"
 ```
 
 **Solución 3:** Limpiar datos innecesarios
@@ -3488,7 +3832,7 @@ sqlite3 horarios.db "VACUUM;"
 - Eliminar profesores no utilizados
 - Eliminar materias no utilizadas
 
-### 17.7 Contacto con soporte
+### 18.7 Contacto con soporte
 
 **Si ninguna solución funciona:**
 
@@ -3507,13 +3851,13 @@ sqlite3 horarios.db "VACUUM;"
 
 ---
 
-## 18. GLOSARIO
+## 19. GLOSARIO
 
 **Año/Curso:** Nivel educativo dentro de un plan de estudios (1°, 2°, 3°, etc.).
 
 **Banca de horas:** Conjunto de materias que un profesor puede dictar, junto con las horas efectivamente asignadas.
 
-**Base de datos:** Archivo `horarios.db` que contiene todos los datos del sistema.
+**Base de datos:** Archivo `institucion.db` que contiene todos los datos del sistema.
 
 **Combobox:** Lista desplegable donde se selecciona una opción.
 
@@ -3552,9 +3896,9 @@ sqlite3 horarios.db "VACUUM;"
 **FIN DEL MANUAL DE USUARIO**
 
 **Versión del Documento:** 1.0  
-**Fecha:** 8 de noviembre de 2025  
-**Sistema:** Gestión de Horarios Escolares v0.9  
-**Revisión:** [Pendiente]
+**Fecha:** 11 de noviembre de 2025  
+**Sistema:** Gestión de Horarios Escolares v1.0  
+**Revisión:** Actualizada
 
 ---
 

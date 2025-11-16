@@ -65,6 +65,6 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "========================================" -ForegroundColor Red
     Write-Host ""
     Write-Host "Revisa los mensajes de error anteriores." -ForegroundColor Yellow
-    Write-Host "Verifica que el archivo Horarios_v0.9.py existe y no tiene errores." -ForegroundColor Yellow
+    Write-Host "Verifica que el archivo SistemaEscolar_v1.py existe y no tiene errores." -ForegroundColor Yellow
     exit 1
 }

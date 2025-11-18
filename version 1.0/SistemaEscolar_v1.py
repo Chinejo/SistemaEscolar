@@ -86,6 +86,85 @@ def actualizar_entidad(conn, tabla, campos, valores, id_campo, id_valor):
 def eliminar_entidad(conn, tabla, id_campo, id_valor):
 	conn.execute(f'DELETE FROM {tabla} WHERE {id_campo}=?', (id_valor,))
 
+
+def _table_exists(conn, table_name: str) -> bool:
+	"""Helper para saber si una tabla existe."""
+	c = conn.cursor()
+	c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
+	return c.fetchone() is not None
+
+
+def _ensure_ciclo_schema(conn):
+	"""Garantiza que la tabla ciclo soporte asociación multi-plan."""
+	c = conn.cursor()
+	info = []
+	if _table_exists(conn, 'ciclo'):
+		c.execute('PRAGMA table_info(ciclo)')
+		info = c.fetchall()
+	else:
+		c.execute('''CREATE TABLE ciclo (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			nombre TEXT UNIQUE NOT NULL
+		)''')
+
+	has_plan_column = any(col[1] == 'plan_id' for col in info)
+	if has_plan_column:
+		_migrar_ciclos_multi_plan(conn)
+
+	# Tabla puente plan-ciclo
+	c.execute('''CREATE TABLE IF NOT EXISTS plan_ciclo (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		plan_id INTEGER NOT NULL,
+		ciclo_id INTEGER NOT NULL,
+		FOREIGN KEY(plan_id) REFERENCES plan_estudio(id) ON DELETE CASCADE,
+		FOREIGN KEY(ciclo_id) REFERENCES ciclo(id) ON DELETE CASCADE,
+		UNIQUE(plan_id, ciclo_id)
+	)''')
+
+
+def _migrar_ciclos_multi_plan(conn):
+	"""Migra la tabla ciclo antigua (con plan_id) al nuevo esquema multi-plan."""
+	c = conn.cursor()
+	conn.execute('PRAGMA foreign_keys = OFF')
+	c.execute('ALTER TABLE ciclo RENAME TO ciclo_old')
+	c.execute('''CREATE TABLE ciclo (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		nombre TEXT UNIQUE NOT NULL
+	)''')
+	# Asegurar que la tabla puente exista antes de poblarla
+	c.execute('''CREATE TABLE IF NOT EXISTS plan_ciclo (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		plan_id INTEGER NOT NULL,
+		ciclo_id INTEGER NOT NULL,
+		FOREIGN KEY(plan_id) REFERENCES plan_estudio(id) ON DELETE CASCADE,
+		FOREIGN KEY(ciclo_id) REFERENCES ciclo(id) ON DELETE CASCADE,
+		UNIQUE(plan_id, ciclo_id)
+	)''')
+	old_rows = c.execute('SELECT id, nombre, plan_id FROM ciclo_old').fetchall()
+	nombre_to_new_id = {}
+	id_map = {}
+	for old_id, nombre, plan_id in old_rows:
+		if nombre not in nombre_to_new_id:
+			c.execute('INSERT INTO ciclo (nombre) VALUES (?)', (nombre,))
+			nombre_to_new_id[nombre] = c.lastrowid
+		new_id = nombre_to_new_id[nombre]
+		id_map[old_id] = new_id
+		if plan_id is not None:
+			c.execute('INSERT OR IGNORE INTO plan_ciclo (plan_id, ciclo_id) VALUES (?, ?)', (plan_id, new_id))
+
+	for table_name in ('division', 'ciclo_materia'):
+		if not _table_exists(conn, table_name):
+			continue
+		for old_id, new_id in id_map.items():
+			c.execute(f'UPDATE {table_name} SET ciclo_id=? WHERE ciclo_id=?', (new_id, old_id))
+		if table_name == 'ciclo_materia':
+			c.execute('''DELETE FROM ciclo_materia WHERE rowid NOT IN (
+				SELECT MIN(rowid) FROM ciclo_materia GROUP BY ciclo_id, materia_id
+			)''')
+
+	c.execute('DROP TABLE ciclo_old')
+	conn.execute('PRAGMA foreign_keys = ON')
+
 def init_db():
 	conn = get_connection()
 	c = conn.cursor()
@@ -99,14 +178,15 @@ def init_db():
 		fecha_creacion TEXT DEFAULT CURRENT_TIMESTAMP
 	)''')
 	
-	# Ciclos por plan
-	c.execute('''CREATE TABLE IF NOT EXISTS ciclo (
+	# Plan de estudios
+	c.execute('''CREATE TABLE IF NOT EXISTS plan_estudio (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		nombre TEXT NOT NULL,
-		plan_id INTEGER,
-		FOREIGN KEY(plan_id) REFERENCES plan_estudio(id),
-		UNIQUE(nombre, plan_id)
+		nombre TEXT UNIQUE NOT NULL
 	)''')
+
+	# Ciclos multi-plan
+	_ensure_ciclo_schema(conn)
+
 	# Obligaciones por ciclo
 	c.execute('''CREATE TABLE IF NOT EXISTS ciclo_materia (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -115,11 +195,6 @@ def init_db():
 		FOREIGN KEY(ciclo_id) REFERENCES ciclo(id),
 		FOREIGN KEY(materia_id) REFERENCES materia(id),
 		UNIQUE(ciclo_id, materia_id)
-	)''')
-	# Plan de estudios
-	c.execute('''CREATE TABLE IF NOT EXISTS plan_estudio (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		nombre TEXT UNIQUE NOT NULL
 	)''')
 	# Obligaciones por plan de estudio
 	c.execute('''CREATE TABLE IF NOT EXISTS plan_materia (
@@ -338,31 +413,129 @@ def eliminar_banca_profesor(pm_id: int):
 # CRUD División
 
 # CRUD Ciclo
-def crear_ciclo(nombre: str, plan_id: int):
+def crear_ciclo(nombre: str, plan_ids: List[int]) -> int:
+	if not plan_ids:
+		raise Exception('Debe seleccionar al menos un plan de estudio.')
+	conn = get_connection()
 	try:
-		conn = get_connection()
 		c = conn.cursor()
-		c.execute('INSERT INTO ciclo (nombre, plan_id) VALUES (?, ?)', (nombre, plan_id))
+		c.execute('INSERT INTO ciclo (nombre) VALUES (?)', (nombre,))
+		ciclo_id = c.lastrowid
+		for plan_id in plan_ids:
+			c.execute('INSERT INTO plan_ciclo (plan_id, ciclo_id) VALUES (?, ?)', (plan_id, ciclo_id))
 		conn.commit()
+		return ciclo_id
 	except sqlite3.IntegrityError:
-		raise Exception('Ya existe un ciclo con ese nombre en el plan.')
+		raise Exception('Ya existe un ciclo con ese nombre.')
 	finally:
 		conn.close()
+
+
+def actualizar_ciclo(id_: int, nombre: str, plan_ids: List[int]):
+	if not plan_ids:
+		raise Exception('Debe seleccionar al menos un plan de estudio.')
+	conn = get_connection()
+	try:
+		c = conn.cursor()
+		try:
+			c.execute('UPDATE ciclo SET nombre=? WHERE id=?', (nombre, id_))
+		except sqlite3.IntegrityError:
+			raise Exception('Ya existe un ciclo con ese nombre.')
+		existing = {row[0] for row in c.execute('SELECT plan_id FROM plan_ciclo WHERE ciclo_id=?', (id_,))}
+		new_set = set(plan_ids)
+		to_add = new_set - existing
+		to_remove = existing - new_set
+		if to_remove and _table_exists(conn, 'division'):
+			for plan_id in to_remove:
+				c.execute('SELECT COUNT(*) FROM division WHERE ciclo_id=? AND plan_id=?', (id_, plan_id))
+				if c.fetchone()[0] > 0:
+					raise Exception('No se puede desvincular el plan seleccionado porque existen divisiones asociadas.')
+		for plan_id in to_remove:
+			c.execute('DELETE FROM plan_ciclo WHERE ciclo_id=? AND plan_id=?', (id_, plan_id))
+		for plan_id in to_add:
+			c.execute('INSERT INTO plan_ciclo (plan_id, ciclo_id) VALUES (?, ?)', (plan_id, id_))
+		conn.commit()
+	finally:
+		conn.close()
+
 
 def obtener_ciclos(plan_id: int) -> list:
 	conn = get_connection()
 	c = conn.cursor()
-	c.execute('SELECT id, nombre FROM ciclo WHERE plan_id=?', (plan_id,))
+	c.execute('''SELECT c.id, c.nombre FROM ciclo c
+			 JOIN plan_ciclo pc ON pc.ciclo_id = c.id
+			 WHERE pc.plan_id=?
+			 ORDER BY c.nombre''', (plan_id,))
 	rows = c.fetchall()
 	conn.close()
 	return [{'id': r[0], 'nombre': r[1]} for r in rows]
 
-def eliminar_ciclo(id_: int):
+
+def obtener_ciclos_con_planes() -> List[Dict[str, Any]]:
 	conn = get_connection()
 	c = conn.cursor()
-	c.execute('DELETE FROM ciclo WHERE id=?', (id_,))
-	conn.commit()
+	c.execute('''SELECT c.id, c.nombre, p.id, p.nombre
+			 FROM ciclo c
+			 LEFT JOIN plan_ciclo pc ON pc.ciclo_id = c.id
+			 LEFT JOIN plan_estudio p ON p.id = pc.plan_id
+			 ORDER BY c.nombre, p.nombre''')
+	rows = c.fetchall()
 	conn.close()
+	result: Dict[int, Dict[str, Any]] = {}
+	for ciclo_id, ciclo_nombre, plan_id, plan_nombre in rows:
+		if ciclo_id not in result:
+			result[ciclo_id] = {'id': ciclo_id, 'nombre': ciclo_nombre, 'planes': []}
+		if plan_id is not None:
+			result[ciclo_id]['planes'].append({'id': plan_id, 'nombre': plan_nombre})
+	return list(result.values())
+
+
+def obtener_planes_de_ciclo(ciclo_id: int) -> List[Dict[str, Any]]:
+	conn = get_connection()
+	c = conn.cursor()
+	c.execute('''SELECT p.id, p.nombre FROM plan_ciclo pc
+			 JOIN plan_estudio p ON p.id = pc.plan_id
+			 WHERE pc.ciclo_id=?
+			 ORDER BY p.nombre''', (ciclo_id,))
+	rows = c.fetchall()
+	conn.close()
+	return [{'id': r[0], 'nombre': r[1]} for r in rows]
+
+
+def contar_dependencias_ciclo(ciclo_id: int) -> Dict[str, int]:
+	conn = get_connection()
+	c = conn.cursor()
+	divisiones = horarios = 0
+	if _table_exists(conn, 'division'):
+		c.execute('SELECT COUNT(*) FROM division WHERE ciclo_id=?', (ciclo_id,))
+		divisiones = c.fetchone()[0]
+	if divisiones and _table_exists(conn, 'horario'):
+		c.execute('''SELECT COUNT(*) FROM horario
+				 WHERE division_id IN (SELECT id FROM division WHERE ciclo_id=?)''', (ciclo_id,))
+		horarios = c.fetchone()[0]
+	conn.close()
+	return {'divisiones': divisiones, 'horarios': horarios}
+
+
+def eliminar_ciclo(id_: int, cascade: bool = False):
+	conn = get_connection()
+	try:
+		c = conn.cursor()
+		deps = contar_dependencias_ciclo(id_)
+		if (deps['divisiones'] or deps['horarios']) and not cascade:
+			raise Exception('El ciclo tiene divisiones y/o horarios asociados.')
+		if cascade and deps['divisiones']:
+			if _table_exists(conn, 'horario'):
+				c.execute('DELETE FROM horario WHERE division_id IN (SELECT id FROM division WHERE ciclo_id=?)', (id_,))
+			if _table_exists(conn, 'division'):
+				c.execute('DELETE FROM division WHERE ciclo_id=?', (id_,))
+		if _table_exists(conn, 'ciclo_materia'):
+			c.execute('DELETE FROM ciclo_materia WHERE ciclo_id=?', (id_,))
+		c.execute('DELETE FROM plan_ciclo WHERE ciclo_id=?', (id_,))
+		c.execute('DELETE FROM ciclo WHERE id=?', (id_,))
+		conn.commit()
+	finally:
+		conn.close()
 
 # CRUD Obligaciones por ciclo
 def agregar_materia_a_ciclo(ciclo_id: int, materia_id: int):
@@ -1163,7 +1336,7 @@ class App(tk.Tk):
 		menubar.add_command(label='Turnos, Planes y Materias', command=self.mostrar_turnos_planes_materias)
 
 		# Gestión de Personal y Ciclos (enlace directo)
-		menubar.add_command(label='Gestión de Personal y Ciclos', command=self.mostrar_personal_ciclos)
+		menubar.add_command(label='Personal y Cursos', command=self.mostrar_personal_ciclos)
 
 		# Gestión de horarios (único con cascada)
 		horarios_menu = tk.Menu(menubar, tearoff=0)
@@ -1484,11 +1657,11 @@ class App(tk.Tk):
 	# ============================================================
 	
 	def mostrar_personal_ciclos(self):
-		"""Muestra Gestión de Personal y Ciclos en tabs con botones laterales"""
+		"""Muestra Gestión de Personal, Ciclos y Divisiones en tabs con botones laterales"""
 		self.limpiar_frame()
 		
 		# Título principal
-		ttk.Label(self.frame_principal, text='Gestión de Personal y Ciclos', 
+		ttk.Label(self.frame_principal, text='Gestión de Personal, Ciclos y Divisiones', 
 				 font=('Arial', 14)).pack(pady=10)
 		
 		# Crear notebook para tabs
@@ -1498,13 +1671,16 @@ class App(tk.Tk):
 		# Crear tabs
 		tab_personal = ttk.Frame(notebook)
 		tab_ciclos = ttk.Frame(notebook)
+		tab_divisiones = ttk.Frame(notebook)
 		
 		notebook.add(tab_personal, text='Personal')
 		notebook.add(tab_ciclos, text='Ciclos')
+		notebook.add(tab_divisiones, text='Divisiones')
 		
 		# Crear contenido de cada tab
 		self._crear_tab_personal(tab_personal)
 		self._crear_tab_ciclos(tab_ciclos)
+		self._crear_tab_divisiones(tab_divisiones)
 	
 	def _crear_tab_personal(self, parent):
 		"""Crea el tab de Personal con layout lateral"""
@@ -1586,9 +1762,42 @@ class App(tk.Tk):
 		# Selección en tabla
 		self.tree_profesores.bind('<<TreeviewSelect>>', self._on_select_profesor)
 		self.profesor_seleccionado_id = None
-	
+
 	def _crear_tab_ciclos(self, parent):
-		"""Crea el tab de Ciclos con layout lateral"""
+		"""Crea el tab de Ciclos con CRUD y asociación a planes."""
+		main_frame = ttk.Frame(parent)
+		main_frame.pack(fill='both', expand=True, padx=10, pady=10)
+		main_frame.columnconfigure(1, weight=1)
+		main_frame.rowconfigure(0, weight=1)
+
+		# Aside con acciones
+		aside = ttk.Frame(main_frame)
+		aside.grid(row=0, column=0, sticky='ns', padx=(0, 10))
+		ttk.Label(aside, text='Acciones', font=('Arial', 11, 'bold')).pack(pady=(0, 10))
+		ttk.Button(aside, text='Agregar', command=self._agregar_ciclo, width=22).pack(pady=3)
+		ttk.Button(aside, text='Editar', command=self._editar_ciclo, width=22).pack(pady=3)
+		ttk.Button(aside, text='Eliminar', command=self._eliminar_ciclo_tab, width=22).pack(pady=3)
+
+		# Contenido principal
+		content = ttk.Frame(main_frame)
+		content.grid(row=0, column=1, sticky='nsew')
+
+		self.label_total_ciclos = ttk.Label(content, text='Total de ciclos: 0', font=('Arial', 10))
+		self.label_total_ciclos.pack(pady=(0, 5))
+
+		frame_tabla = ttk.Frame(content)
+		frame_tabla.pack(pady=10, fill='both', expand=True)
+		column_config = {
+			'Ciclo': {'width': 200, 'anchor': 'w'},
+			'Planes': {'width': 260, 'anchor': 'w'}
+		}
+		self.tree_ciclos = crear_treeview(frame_tabla, ('Ciclo', 'Planes'), ('Ciclo', 'Planes'), column_config=column_config)
+		self.tree_ciclos.bind('<<TreeviewSelect>>', self._on_select_ciclo)
+		self.ciclo_seleccionado_id = None
+		self._recargar_ciclos_tree()
+	
+	def _crear_tab_divisiones(self, parent):
+		"""Crea el tab de Divisiones con layout lateral"""
 		# Frame principal con dos columnas: aside y contenido
 		main_frame = ttk.Frame(parent)
 		main_frame.pack(fill='both', expand=True, padx=10, pady=10)
@@ -1705,6 +1914,200 @@ class App(tk.Tk):
 		# Selección en tabla
 		self.tree_divisiones.bind('<<TreeviewSelect>>', self._on_select_division)
 		self.division_seleccionada_id = None
+
+	def _recargar_ciclos_tree(self):
+		ciclos = obtener_ciclos_con_planes()
+		self.ciclos_cache = ciclos
+		datos_tree = []
+		for ciclo in ciclos:
+			planes_ordenados = sorted([p['nombre'] for p in ciclo['planes']], key=lambda x: x.lower())
+			planes_text = ', '.join(planes_ordenados)
+			planes_text = planes_text if planes_text else 'Sin planes asociados'
+			datos_tree.append({'id': ciclo['id'], 'nombre': ciclo['nombre'], 'planes': planes_text})
+		tree = getattr(self, 'tree_ciclos', None)
+		if tree:
+			recargar_treeview(tree, datos_tree, ['nombre', 'planes'])
+		if hasattr(self, 'label_total_ciclos'):
+			self.label_total_ciclos.config(text=f'Total de ciclos: {len(datos_tree)}')
+		if not any(c['id'] == self.ciclo_seleccionado_id for c in ciclos):
+			self.ciclo_seleccionado_id = None
+		self._sincronizar_comboboxes_ciclos()
+
+	def _on_select_ciclo(self, event=None):
+		seleccion = self.tree_ciclos.selection()
+		self.ciclo_seleccionado_id = int(seleccion[0]) if seleccion else None
+
+	def _agregar_ciclo(self):
+		self._abrir_modal_ciclo(modo='agregar')
+
+	def _editar_ciclo(self):
+		if not self.ciclo_seleccionado_id:
+			messagebox.showerror('Error', 'Seleccione un ciclo para editar.')
+			return
+		self._abrir_modal_ciclo(modo='editar')
+
+	def _eliminar_ciclo_tab(self):
+		if not self.ciclo_seleccionado_id:
+			messagebox.showerror('Error', 'Seleccione un ciclo para eliminar.')
+			return
+		deps = contar_dependencias_ciclo(self.ciclo_seleccionado_id)
+		mensaje = (
+			f"Se eliminarán {deps['divisiones']} divisiones y {deps['horarios']} horarios asociados al ciclo seleccionado. "
+			'¿Desea continuar?'
+		)
+		if not messagebox.askyesno('Confirmar eliminación', mensaje):
+			return
+		try:
+			eliminar_ciclo(self.ciclo_seleccionado_id, cascade=True)
+			self.ciclo_seleccionado_id = None
+			self._recargar_ciclos_tree()
+			self._recargar_divisiones_tree()
+		except Exception as e:
+			messagebox.showerror('Error', str(e))
+
+	def _abrir_modal_ciclo(self, modo: str):
+		editar = modo == 'editar'
+		ciclo_id = self.ciclo_seleccionado_id if editar else None
+		if editar and not ciclo_id:
+			messagebox.showerror('Error', 'Seleccione un ciclo para editar.')
+			return
+		planes = obtener_planes()
+		if not planes:
+			messagebox.showinfo('Información', 'Debe crear al menos un plan de estudio antes de gestionar ciclos.')
+			return
+		ciclo_actual = None
+		if editar:
+			ciclo_actual = next((c for c in getattr(self, 'ciclos_cache', []) if c['id'] == ciclo_id), None)
+			if not ciclo_actual:
+				messagebox.showerror('Error', 'No se pudo cargar la información del ciclo seleccionado.')
+				return
+		planes_seleccionados = {p['id'] for p in ciclo_actual['planes']} if ciclo_actual else set()
+		win = tk.Toplevel(self)
+		win.configure(bg='#f4f6fa')
+		titulo = 'Editar ciclo' if editar else 'Agregar ciclo'
+		win.title(titulo)
+		win.geometry('420x440')
+		win.minsize(400, 380)
+		win.transient(self)
+		win.grab_set()
+		win.focus_force()
+
+		ttk.Label(win, text=titulo, font=('Arial', 12, 'bold')).pack(pady=10)
+		ttk.Label(win, text='Nombre del ciclo:', font=('Segoe UI', 10)).pack(anchor='w', padx=20)
+		entry_nombre = ttk.Entry(win)
+		entry_nombre.pack(fill='x', padx=20, pady=(0, 10))
+		if ciclo_actual:
+			entry_nombre.insert(0, ciclo_actual['nombre'])
+
+		ttk.Label(win, text='Planes de estudio asociados:', font=('Segoe UI', 10)).pack(anchor='w', padx=20)
+		planes_frame = ttk.Frame(win)
+		planes_frame.pack(fill='both', expand=True, padx=20, pady=10)
+		plan_vars = {}
+		planes_sorted = sorted(planes, key=lambda p: p['nombre'].lower())
+		if len(planes_sorted) > 5:
+			canvas = tk.Canvas(planes_frame, highlightthickness=0, bg='#f4f6fa')
+			scrollbar = ttk.Scrollbar(planes_frame, orient='vertical', command=canvas.yview)
+			inner = ttk.Frame(canvas)
+			inner.bind('<Configure>', lambda e: canvas.configure(scrollregion=canvas.bbox('all')))
+			canvas.create_window((0, 0), window=inner, anchor='nw')
+			canvas.configure(yscrollcommand=scrollbar.set)
+			canvas.pack(side='left', fill='both', expand=True)
+			scrollbar.pack(side='right', fill='y')
+			checkbox_parent = inner
+		else:
+			checkbox_parent = planes_frame
+		for plan in planes_sorted:
+			var = tk.IntVar(value=1 if plan['id'] in planes_seleccionados else 0)
+			ttk.Checkbutton(checkbox_parent, text=plan['nombre'], variable=var).pack(anchor='w', pady=2)
+			plan_vars[plan['id']] = var
+
+		def guardar():
+			nombre = entry_nombre.get().strip()
+			if not nombre:
+				messagebox.showerror('Error', 'Ingrese un nombre para el ciclo.', parent=win)
+				return
+			seleccionados = [plan_id for plan_id, var in plan_vars.items() if var.get() == 1]
+			if not seleccionados:
+				messagebox.showerror('Error', 'Seleccione al menos un plan de estudio.', parent=win)
+				return
+			try:
+				if editar:
+					actualizar_ciclo(ciclo_id, nombre, seleccionados)
+				else:
+					crear_ciclo(nombre, seleccionados)
+				self._recargar_ciclos_tree()
+				self._recargar_divisiones_tree()
+				win.destroy()
+			except Exception as e:
+				messagebox.showerror('Error', str(e), parent=win)
+
+		btns = ttk.Frame(win)
+		btns.pack(pady=10)
+		ttk.Button(btns, text='Guardar', command=guardar).pack(side='left', padx=5)
+		ttk.Button(btns, text='Cancelar', command=win.destroy).pack(side='left', padx=5)
+		entry_nombre.focus_set()
+		win.bind('<Return>', lambda e: guardar())
+
+	def _sincronizar_comboboxes_ciclos(self):
+		self._actualizar_ciclos_en_divisiones_tab()
+		self._actualizar_ciclos_en_horarios_curso()
+
+	def _actualizar_ciclos_en_divisiones_tab(self):
+		plan_combo = getattr(self, 'cb_plan_division', None)
+		ciclo_combo = getattr(self, 'cb_ciclo_division', None)
+		if not plan_combo or not ciclo_combo:
+			return
+		if not plan_combo.winfo_exists() or not ciclo_combo.winfo_exists():
+			return
+		try:
+			plan_nombre = plan_combo.get()
+		except tk.TclError:
+			return
+		planes_dict = getattr(self, 'planes_dict', {})
+		if not plan_nombre or plan_nombre not in planes_dict:
+			return
+		plan_id = planes_dict[plan_nombre]
+		ciclos = obtener_ciclos(plan_id)
+		ciclo_nombres = [c['nombre'] for c in ciclos]
+		try:
+			seleccion = ciclo_combo.get()
+		except tk.TclError:
+			return
+		ciclo_combo['values'] = ciclo_nombres
+		ciclo_combo.config(state='readonly' if ciclo_nombres else 'disabled')
+		if seleccion in ciclo_nombres:
+			ciclo_combo.set(seleccion)
+		else:
+			ciclo_combo.set('')
+
+	def _actualizar_ciclos_en_horarios_curso(self):
+		plan_combo = getattr(self, 'cb_plan_horario', None)
+		ciclo_combo = getattr(self, 'cb_ciclo_horario', None)
+		if not plan_combo or not ciclo_combo:
+			return
+		if not plan_combo.winfo_exists() or not ciclo_combo.winfo_exists():
+			return
+		try:
+			plan_nombre = plan_combo.get()
+		except tk.TclError:
+			return
+		planes_dict = getattr(self, 'planes_dict_horario', {})
+		if not plan_nombre or plan_nombre not in planes_dict:
+			return
+		plan_id = planes_dict[plan_nombre]
+		ciclos = obtener_ciclos(plan_id)
+		self.ciclos_dict_horario = {c['nombre']: c['id'] for c in ciclos}
+		ciclo_nombres = list(self.ciclos_dict_horario.keys())
+		try:
+			seleccion = ciclo_combo.get()
+		except tk.TclError:
+			return
+		ciclo_combo['values'] = ciclo_nombres
+		ciclo_combo.config(state='readonly' if ciclo_nombres else 'disabled')
+		if seleccion in ciclo_nombres:
+			ciclo_combo.set(seleccion)
+		else:
+			ciclo_combo.set('')
 	
 	# ============================================================
 	# FUNCIONES ANTIGUAS (mantenidas para compatibilidad)
@@ -1941,7 +2344,7 @@ class App(tk.Tk):
 
 	def mostrar_divisiones(self):
 		self.limpiar_frame()
-		ttk.Label(self.frame_principal, text='Gestión de Ciclos', font=('Arial', 14)).pack(pady=10)
+		ttk.Label(self.frame_principal, text='Gestión de Divisiones', font=('Arial', 14)).pack(pady=10)
 
 		# Totales
 		divisiones = obtener_divisiones()
@@ -1998,11 +2401,15 @@ class App(tk.Tk):
 				return
 			plan_id = self.planes_dict[plan_nombre]
 			ciclos = obtener_ciclos(plan_id)
-			self.cb_ciclo_division['values'] = [a['nombre'] for a in ciclos]
-			self.cb_ciclo_division.set('')
+			ciclo_actual = self.cb_ciclo_division.get()
+			ciclo_nombres = [a['nombre'] for a in ciclos]
+			self.cb_ciclo_division['values'] = ciclo_nombres
+			if ciclo_actual in ciclo_nombres:
+				self.cb_ciclo_division.set(ciclo_actual)
+			else:
+				self.cb_ciclo_division.set('')
 			self.cb_ciclo_division.config(state='readonly' if ciclos else 'disabled')
-			# Pasar focus a Ciclo
-			if ciclos:
+			if ciclos and ciclo_actual not in ciclo_nombres:
 				self.cb_ciclo_division.focus_set()
 			self._recargar_divisiones_tree()
 		def on_ciclo_selected(event=None):
@@ -2033,29 +2440,29 @@ class App(tk.Tk):
 
 	def _recargar_divisiones_tree(self):
 		divisiones = obtener_divisiones()
-		
-		# Obtener filtros seleccionados
-		turno_nombre = self.cb_turno_division.get()
-		plan_nombre = self.cb_plan_division.get()
-		ciclo_nombre = self.cb_ciclo_division.get()
-		
+		turnos_map = {t['id']: t['nombre'] for t in obtener_turnos()}
+		planes_map = {p['id']: p['nombre'] for p in obtener_planes()}
+		ciclos_map = {c['id']: c['nombre'] for c in obtener_ciclos_con_planes()}
+		turno_nombre = self.cb_turno_division.get() if hasattr(self, 'cb_turno_division') else ''
+		plan_nombre = self.cb_plan_division.get() if hasattr(self, 'cb_plan_division') else ''
+		ciclo_nombre = self.cb_ciclo_division.get() if hasattr(self, 'cb_ciclo_division') else ''
 		datos = []
-		for c in divisiones:
-			turno = next((t['nombre'] for t in obtener_turnos() if t['id'] == c['turno_id']), '')
-			plan = next((p['nombre'] for p in obtener_planes() if p['id'] == c['plan_id']), '')
-			ciclo = next((a['nombre'] for a in obtener_ciclos(c['plan_id']) if a['id'] == c['ciclo_id']), '')
-			
-			# Aplicar filtros
+		for division in divisiones:
+			turno = turnos_map.get(division['turno_id'], '')
+			plan = planes_map.get(division['plan_id'], '')
+			ciclo = ciclos_map.get(division['ciclo_id'], '')
 			if turno_nombre and turno != turno_nombre:
 				continue
 			if plan_nombre and plan != plan_nombre:
 				continue
 			if ciclo_nombre and ciclo != ciclo_nombre:
 				continue
-			
-			datos.append({'id': c['id'], 'Turno': turno, 'Plan': plan, 'Ciclo': ciclo, 'División': c['nombre']})
-		
-		recargar_treeview(self.tree_divisiones, datos, ['Turno', 'Plan', 'Ciclo', 'División'])
+			datos.append({'id': division['id'], 'Turno': turno, 'Plan': plan, 'Ciclo': ciclo, 'División': division['nombre']})
+		datos.sort(key=lambda d: (d['Turno'], d['Plan'], d['Ciclo'], d['División']))
+		if hasattr(self, 'tree_divisiones'):
+			recargar_treeview(self.tree_divisiones, datos, ['Turno', 'Plan', 'Ciclo', 'División'])
+		if hasattr(self, 'label_total_divisiones'):
+			self.label_total_divisiones.config(text=f'Total de divisiones: {len(datos)}')
 		
 		# Actualizar contador de divisiones
 		self.label_total_divisiones.config(text=f'Total de divisiones: {len(datos)}')
@@ -4554,8 +4961,8 @@ class App(tk.Tk):
 				if not nombre:
 					return
 				try:
-					crear_ciclo(nombre, self.plan_seleccionado_id)
-					ciclos_plan.append({'id': obtener_ciclos(self.plan_seleccionado_id)[-1]['id'], 'nombre': nombre})
+					crear_ciclo(nombre, [self.plan_seleccionado_id])
+					ciclos_plan[:] = obtener_ciclos(self.plan_seleccionado_id)
 					cargar()
 					win2.destroy()
 				except Exception as e:

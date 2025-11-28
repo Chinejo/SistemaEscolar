@@ -21,10 +21,14 @@ def aplicar_estilos_ttk():
 	style.map('Treeview', background=[('selected', '#b3d1ff')])
 	style.map('Treeview', foreground=[('selected', '#222')])
 # MODELOS Y LOGICA DE DATOS PARA GESTION DE HORARIOS ESCOLARES
-import sqlite3
 import os
+import shutil
+import sqlite3
 import sys
-from typing import List, Optional, Dict, Any
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+import xlwt
 
 
 # Inicialización de la base de datos
@@ -92,6 +96,230 @@ def _table_exists(conn, table_name: str) -> bool:
 	c = conn.cursor()
 	c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
 	return c.fetchone() is not None
+
+
+HORARIO_DIAS_BASE = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes']
+ESPACIOS_POR_DEFECTO = 8
+_HOJA_CARACTERES_INVALIDOS = set('[]:*?/\\')
+
+
+def _obtener_dias_para_export() -> List[str]:
+	"""Obtiene los días en orden para construir las planillas, admitiendo días nuevos."""
+	dias_base = HORARIO_DIAS_BASE.copy()
+	conn = get_connection()
+	try:
+		if not _table_exists(conn, 'horario'):
+			return dias_base
+		c = conn.cursor()
+		c.execute("SELECT DISTINCT dia FROM horario WHERE dia IS NOT NULL AND dia <> ''")
+		extras = []
+		for row in c.fetchall():
+			dia = row[0]
+			if not dia:
+				continue
+			if dia not in dias_base and dia not in extras:
+				extras.append(dia)
+		extras.sort(key=lambda x: x.lower())
+		return dias_base + extras
+	finally:
+		conn.close()
+
+
+def _obtener_max_espacios_para_export() -> int:
+	"""Calcula la cantidad máxima de espacios a exportar considerando la base."""
+	max_espacio = ESPACIOS_POR_DEFECTO
+	conn = get_connection()
+	try:
+		c = conn.cursor()
+		if _table_exists(conn, 'horario'):
+			c.execute('SELECT MAX(espacio) FROM horario')
+			row = c.fetchone()
+			if row and row[0]:
+				max_espacio = max(max_espacio, int(row[0]))
+		if _table_exists(conn, 'turno_espacio_hora'):
+			c.execute('SELECT MAX(espacio) FROM turno_espacio_hora')
+			row = c.fetchone()
+			if row and row[0]:
+				max_espacio = max(max_espacio, int(row[0]))
+	finally:
+		conn.close()
+	return max_espacio
+
+
+def _crear_estilos_xls() -> Dict[str, xlwt.XFStyle]:
+	"""Crea estilos reutilizables para las planillas XLS."""
+	def _bordes():
+		b = xlwt.Borders()
+		b.left = xlwt.Borders.THIN
+		b.right = xlwt.Borders.THIN
+		b.top = xlwt.Borders.THIN
+		b.bottom = xlwt.Borders.THIN
+		return b
+
+	head_font = xlwt.Font()
+	head_font.bold = True
+	head_align = xlwt.Alignment()
+	head_align.horz = xlwt.Alignment.HORZ_CENTER
+	head_align.vert = xlwt.Alignment.VERT_CENTER
+	head_style = xlwt.XFStyle()
+	head_style.font = head_font
+	head_style.alignment = head_align
+	head_style.borders = _bordes()
+
+	index_style = xlwt.XFStyle()
+	index_font = xlwt.Font()
+	index_font.bold = True
+	index_align = xlwt.Alignment()
+	index_align.horz = xlwt.Alignment.HORZ_CENTER
+	index_align.vert = xlwt.Alignment.VERT_CENTER
+	index_style.font = index_font
+	index_style.alignment = index_align
+	index_style.borders = _bordes()
+
+	cell_style = xlwt.XFStyle()
+	cell_align = xlwt.Alignment()
+	cell_align.horz = xlwt.Alignment.HORZ_LEFT
+	cell_align.vert = xlwt.Alignment.VERT_TOP
+	cell_align.wrap = xlwt.Alignment.WRAP_AT_RIGHT
+	cell_style.alignment = cell_align
+	cell_style.borders = _bordes()
+
+	return {
+		'header': head_style,
+		'index': index_style,
+		'cell': cell_style
+	}
+
+
+def _componer_texto_celda(linea_superior: Optional[str], linea_intermedia: Optional[str],
+						  hora_inicio: Optional[str], hora_fin: Optional[str]) -> str:
+	"""Replica el formato de texto mostrado en la UI para cada celda."""
+	if not any([linea_superior, linea_intermedia, hora_inicio, hora_fin]):
+		return ''
+	return f"{linea_superior or ''}\n{linea_intermedia or ''}\n{(hora_inicio or '')}-{(hora_fin or '')}"
+
+
+def _texto_horario_curso(registro: Dict[str, Any]) -> str:
+	return _componer_texto_celda(registro.get('materia'), registro.get('profesor'),
+							  registro.get('hora_inicio'), registro.get('hora_fin'))
+
+
+def _texto_horario_profesor(registro: Dict[str, Any]) -> str:
+	return _componer_texto_celda(registro.get('materia'), registro.get('division'),
+							  registro.get('hora_inicio'), registro.get('hora_fin'))
+
+
+def _construir_matriz_horario(dias: List[str], espacios: int, registros: List[Dict[str, Any]],
+							   formateador) -> Dict[tuple, str]:
+	"""Convierte la lista de horarios en una matriz indexada por (día, espacio)."""
+	matriz = {(dia, esp): '' for dia in dias for esp in range(1, espacios + 1)}
+	for registro in registros:
+		dia = registro.get('dia')
+		if dia not in dias:
+			continue
+		espacio = registro.get('espacio')
+		try:
+			espacio = int(espacio)
+		except (TypeError, ValueError):
+			continue
+		if espacio < 1 or espacio > espacios:
+			continue
+		matriz[(dia, espacio)] = formateador(registro)
+	return matriz
+
+
+def _sanear_nombre_hoja(nombre: str) -> str:
+	if not nombre:
+		nombre = 'Hoja'
+	limpio = ''.join('_' if ch in _HOJA_CARACTERES_INVALIDOS else ch for ch in nombre.strip())
+	if not limpio:
+		limpio = 'Hoja'
+	return limpio[:31]
+
+
+def _asegurar_nombre_unico(nombre: str, existentes: set) -> str:
+	"""Garantiza que el nombre de hoja sea único respetando el límite de 31 caracteres."""
+	base = nombre
+	contador = 2
+	while nombre in existentes:
+		sufijo = f" ({contador})"
+		truncado = base
+		if len(truncado) + len(sufijo) > 31:
+			truncado = truncado[:31 - len(sufijo)]
+		nombre = truncado + sufijo
+		contador += 1
+	existentes.add(nombre)
+	return nombre
+
+
+def _normalizar_ruta_xls(ruta: str) -> str:
+	if not ruta:
+		return ''
+	base, ext = os.path.splitext(ruta)
+	if ext.lower() == '.xls':
+		return ruta
+	if ext:
+		return f"{base}.xls"
+	return f"{ruta}.xls"
+
+
+def _escribir_matriz_en_hoja(hoja: xlwt.Worksheet, dias: List[str], espacios: int,
+							 matriz: Dict[tuple, str], estilos: Dict[str, xlwt.XFStyle]):
+	"""Escribe encabezados y celdas respetando las dimensiones solicitadas."""
+	# Encabezados
+	for col, dia in enumerate([''] + dias):
+		style = estilos['header'] if col == 0 else estilos['header']
+		hoja.write(0, col, dia, style)
+		if col == 0:
+			hoja.col(col).width = 256 * 6
+		else:
+			hoja.col(col).width = 256 * 22
+
+	# Filas de espacios
+	for esp in range(1, espacios + 1):
+		row = esp
+		indice = f"{esp}ª"
+		hoja.write(row, 0, indice, estilos['index'])
+		for col, dia in enumerate(dias, start=1):
+			valor = matriz.get((dia, esp), '')
+			hoja.write(row, col, valor, estilos['cell'])
+
+
+def exportar_planillas_horario(hojas: List[Dict[str, Any]], ruta_archivo: str) -> str:
+	"""Genera un archivo XLS con múltiples hojas de horarios.
+
+	Args:
+		hojas: Lista de dicts con claves 'nombre', 'horarios' y 'construir_texto'.
+		ruta_archivo: Ruta destino (se forzará extensión .xls).
+	"""
+	if not hojas:
+		raise Exception('No hay horarios para exportar.')
+	ruta_final = _normalizar_ruta_xls(ruta_archivo)
+	if not ruta_final:
+		raise Exception('Ruta de exportación inválida.')
+	dias_default = _obtener_dias_para_export()
+	espacios_default = _obtener_max_espacios_para_export()
+	estilos = _crear_estilos_xls()
+	workbook = xlwt.Workbook()
+	nombres_hojas = set()
+	for hoja in hojas:
+		nombre = _sanear_nombre_hoja(hoja.get('nombre', 'Hoja'))
+		nombre = _asegurar_nombre_unico(nombre, nombres_hojas)
+		ws = workbook.add_sheet(nombre, cell_overwrite_ok=True)
+		dias = hoja.get('dias') or dias_default
+		espacios = hoja.get('espacios') or espacios_default
+		horarios = hoja.get('horarios', [])
+		formateador = hoja.get('construir_texto')
+		if formateador is None:
+			raise Exception('Falta formateador de texto para la hoja de exportación.')
+		matriz = _construir_matriz_horario(dias, espacios, horarios, formateador)
+		_escribir_matriz_en_hoja(ws, dias, espacios, matriz, estilos)
+
+	directorio = os.path.dirname(ruta_final)
+	if directorio and not os.path.exists(directorio):
+		os.makedirs(directorio, exist_ok=True)
+	workbook.save(ruta_final)
+	return ruta_final
 
 
 def _ensure_ciclo_schema(conn):
@@ -375,6 +603,23 @@ def obtener_profesores_por_turno(turno_id: int):
 	rows = c.fetchall()
 	conn.close()
 	return [{'id': r[0], 'nombre': r[1]} for r in rows]
+
+
+def obtener_profesor_turnos() -> List[Dict[str, Any]]:
+	"""Devuelve todas las combinaciones profesor-turno disponibles."""
+	conn = get_connection()
+	c = conn.cursor()
+	c.execute('''SELECT p.id, p.nombre, t.id, t.nombre
+			 FROM profesor_turno pt
+			 JOIN profesor p ON p.id = pt.profesor_id
+			 JOIN turno t ON t.id = pt.turno_id
+			 ORDER BY p.nombre, t.nombre''')
+	rows = c.fetchall()
+	conn.close()
+	return [
+		{'profesor_id': r[0], 'profesor': r[1], 'turno_id': r[2], 'turno': r[3]}
+		for r in rows
+	]
 
 # CRUD Banca de horas por materia para profesor
 def asignar_banca_profesor(profesor_id: int, materia_id: int, banca_horas: int):
@@ -950,8 +1195,6 @@ def eliminar_horario_profesor(id_: int):
 	eliminar_horario(id_)
 
 # ============== FUNCIONES DE BACKUP ==============
-import shutil
-from datetime import datetime
 
 def crear_backup_db(manual=False) -> str:
 	"""
@@ -1091,7 +1334,7 @@ except Exception:
 # ================= INTERFAZ GRAFICA BASE ===================
 
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import filedialog, messagebox, ttk
 
 # === Clase para Tooltips ===
 class ToolTip:
@@ -2751,6 +2994,239 @@ class App(tk.Tk):
 		cid = sel[0]
 		self.division_seleccionada_id = cid
 
+	def _generar_nombre_archivo(self, prefijo: str) -> str:
+		"""Genera un nombre seguro con timestamp para sugerir en el guardado."""
+		limpio = ''.join(ch if ch.isalnum() or ch in ('_', '-') else '_' for ch in prefijo.strip()) if prefijo else 'horarios'
+		limpio = limpio or 'horarios'
+		timestamp = datetime.now().strftime('%Y%m%d_%H%M')
+		return f"{limpio}_{timestamp}.xls"
+
+	def _solicitar_ruta_exportacion(self, nombre_sugerido: str) -> Optional[str]:
+		return filedialog.asksaveasfilename(
+			parent=self,
+			title='Guardar horarios como',
+			initialfile=nombre_sugerido,
+			defaultextension='.xls',
+			filetypes=[('Libro Excel 97-2003', '*.xls')]
+		)
+
+	def _mostrar_dialogo_seleccion_multiple(self, titulo: str, descripcion: str,
+											items: List[Dict[str, Any]], on_confirm) -> None:
+		"""Muestra un diálogo genérico para seleccionar múltiples elementos."""
+		if not items:
+			messagebox.showinfo('Sin datos', 'No hay elementos disponibles para exportar.', parent=self)
+			return
+		ordenados = sorted(items, key=lambda x: x.get('label', '').lower())
+		win = tk.Toplevel(self)
+		win.title(titulo)
+		win.transient(self)
+		win.grab_set()
+		win.resizable(False, False)
+		frame = ttk.Frame(win, padding=12)
+		frame.pack(fill='both', expand=True)
+		ttk.Label(frame, text=descripcion, font=('Segoe UI', 10, 'bold')).pack(anchor='w')
+		search_var = tk.StringVar()
+		filtro_row = ttk.Frame(frame)
+		filtro_row.pack(fill='x', pady=(6, 10))
+		ttk.Label(filtro_row, text='Filtro:', font=('Segoe UI', 10, 'bold')).pack(side='left', padx=(0, 6))
+		search_entry = ttk.Entry(filtro_row, textvariable=search_var)
+		search_entry.pack(side='left', fill='x', expand=True)
+		list_container = ttk.Frame(frame)
+		list_container.pack(fill='both', expand=True)
+		listbox = tk.Listbox(list_container, selectmode='multiple', height=14, exportselection=False)
+		listbox.pack(side='left', fill='both', expand=True)
+		scrollbar = ttk.Scrollbar(list_container, orient='vertical', command=listbox.yview)
+		scrollbar.pack(side='right', fill='y')
+		listbox.configure(yscrollcommand=scrollbar.set)
+		lista_filtrada: List[Dict[str, Any]] = []
+
+		def refrescar_lista(*_):
+			filtro = search_var.get().strip().lower()
+			listbox.delete(0, tk.END)
+			lista_filtrada.clear()
+			for item in ordenados:
+				etiqueta = item.get('label', '')
+				if filtro and filtro not in etiqueta.lower():
+					continue
+				lista_filtrada.append(item)
+				listbox.insert(tk.END, etiqueta)
+		refrescar_lista()
+		search_var.trace_add('write', refrescar_lista)
+
+		btn_sel = ttk.Frame(frame)
+		btn_sel.pack(fill='x', pady=6)
+		ttk.Button(btn_sel, text='Seleccionar todo', command=lambda: listbox.select_set(0, tk.END)).pack(side='left', padx=2)
+		ttk.Button(btn_sel, text='Limpiar selección', command=lambda: listbox.selection_clear(0, tk.END)).pack(side='left', padx=2)
+
+		acciones = ttk.Frame(frame)
+		acciones.pack(fill='x', pady=(6, 0))
+
+		def confirmar():
+			indices = listbox.curselection()
+			if not indices:
+				messagebox.showwarning('Seleccionar', 'Seleccione al menos un elemento.', parent=win)
+				return
+			if not lista_filtrada:
+				messagebox.showwarning('Sin resultados', 'No hay elementos que coincidan con el filtro.', parent=win)
+				return
+			valores = [lista_filtrada[i]['value'] for i in indices if i < len(lista_filtrada)]
+			try:
+				cerrar = on_confirm(valores)
+			except Exception as exc:
+				messagebox.showerror('Error', str(exc), parent=win)
+				return
+			if cerrar:
+				win.destroy()
+
+		ttk.Button(acciones, text='Exportar', command=confirmar).pack(side='left', padx=5)
+		ttk.Button(acciones, text='Cancelar', command=win.destroy).pack(side='right', padx=5)
+		search_entry.focus_set()
+
+	def _exportar_horario_curso_actual(self):
+		if not getattr(self, 'cb_division_horario', None) or not self.cb_division_horario.get():
+			messagebox.showwarning('Seleccionar división', 'Seleccione una división antes de exportar.', parent=self)
+			return
+		division_nombre = self.cb_division_horario.get()
+		division_id = self.divisiones_dict_horario.get(division_nombre)
+		if division_id is None:
+			messagebox.showerror('División inválida', 'La división seleccionada no es válida.', parent=self)
+			return
+		horarios = obtener_horarios(division_id)
+		turno_nombre = self.cb_turno_horario.get() if getattr(self, 'cb_turno_horario', None) else ''
+		hoja_nombre = f"{division_nombre} - {turno_nombre}".strip(' -')
+		ruta = self._solicitar_ruta_exportacion(self._generar_nombre_archivo(division_nombre))
+		if not ruta:
+			return
+		try:
+			destino = exportar_planillas_horario([
+				{'nombre': hoja_nombre, 'horarios': horarios, 'construir_texto': _texto_horario_curso}
+			], ruta)
+		except Exception as exc:
+			messagebox.showerror('Error al exportar', str(exc), parent=self)
+			return
+		messagebox.showinfo('Exportación completada', f'Archivo generado en:\n{destino}', parent=self)
+
+	def _exportar_multiples_cursos(self):
+		divisiones = obtener_divisiones()
+		if not divisiones:
+			messagebox.showinfo('Sin divisiones', 'No hay divisiones registradas para exportar.', parent=self)
+			return
+		turnos_map = {t['id']: t['nombre'] for t in obtener_turnos()}
+		planes_map = {p['id']: p['nombre'] for p in obtener_planes()}
+		ciclos_map = {c['id']: c['nombre'] for c in obtener_ciclos_con_planes()}
+		items = []
+		div_lookup = {d['id']: d for d in divisiones}
+		for division in divisiones:
+			label = (
+				f"{division['nombre']}  |  Turno: {turnos_map.get(division['turno_id'], 'Sin turno')}  |  "
+				f"Plan: {planes_map.get(division['plan_id'], 'Sin plan')}  |  "
+				f"Ciclo: {ciclos_map.get(division['ciclo_id'], 'Sin ciclo')}"
+			)
+			items.append({'label': label, 'value': division['id']})
+
+		def on_confirm(ids):
+			hojas = []
+			for division_id in ids:
+				division = div_lookup.get(division_id)
+				if not division:
+					continue
+				horarios = obtener_horarios(division_id)
+				turno_nombre = turnos_map.get(division['turno_id'], '')
+				hoja_nombre = f"{division['nombre']} - {turno_nombre}".strip(' -')
+				hojas.append({'nombre': hoja_nombre, 'horarios': horarios, 'construir_texto': _texto_horario_curso})
+			if not hojas:
+				messagebox.showwarning('Sin datos', 'Las divisiones seleccionadas no poseen horarios para exportar.', parent=self)
+				return False
+			ruta = self._solicitar_ruta_exportacion(self._generar_nombre_archivo('cursos'))
+			if not ruta:
+				return False
+			try:
+				destino = exportar_planillas_horario(hojas, ruta)
+			except Exception as exc:
+				messagebox.showerror('Error al exportar', str(exc), parent=self)
+				return False
+			messagebox.showinfo('Exportación completada', f'Se generó el archivo:\n{destino}', parent=self)
+			return True
+
+		self._mostrar_dialogo_seleccion_multiple(
+			'Exportar horarios de cursos',
+			'Seleccione las divisiones a exportar:',
+			items,
+			on_confirm
+		)
+
+	def _exportar_horario_profesor_actual(self):
+		if not getattr(self, 'cb_profesor_horario', None) or not getattr(self, 'cb_turno_horario_prof', None):
+			messagebox.showwarning('Seleccionar profesor', 'Seleccione un turno y un profesor antes de exportar.', parent=self)
+			return
+		profesor_nombre = self.cb_profesor_horario.get()
+		turno_nombre = self.cb_turno_horario_prof.get()
+		if not profesor_nombre or not turno_nombre:
+			messagebox.showwarning('Seleccionar profesor', 'Seleccione un turno y un profesor antes de exportar.', parent=self)
+			return
+		profesor_id = self.profesores_dict_horario.get(profesor_nombre)
+		turno_id = self.turnos_dict_horario_prof.get(turno_nombre)
+		if profesor_id is None or turno_id is None:
+			messagebox.showerror('Selección inválida', 'La combinación seleccionada no es válida.', parent=self)
+			return
+		horarios = obtener_horarios_profesor(profesor_id, turno_id)
+		hoja_nombre = f"{profesor_nombre} - {turno_nombre}".strip()
+		ruta = self._solicitar_ruta_exportacion(self._generar_nombre_archivo(profesor_nombre))
+		if not ruta:
+			return
+		try:
+			destino = exportar_planillas_horario([
+				{'nombre': hoja_nombre, 'horarios': horarios, 'construir_texto': _texto_horario_profesor}
+			], ruta)
+		except Exception as exc:
+			messagebox.showerror('Error al exportar', str(exc), parent=self)
+			return
+		messagebox.showinfo('Exportación completada', f'Archivo generado en:\n{destino}', parent=self)
+
+	def _exportar_multiples_profesores(self):
+		combinaciones = obtener_profesor_turnos()
+		if not combinaciones:
+			messagebox.showinfo('Sin profesores', 'No hay profesores con turnos asignados para exportar.', parent=self)
+			return
+		items = []
+		combo_lookup = {}
+		for combo in combinaciones:
+			clave = (combo['profesor_id'], combo['turno_id'])
+			combo_lookup[clave] = combo
+			label = f"{combo['profesor']}  |  Turno: {combo['turno']}"
+			items.append({'label': label, 'value': clave})
+
+		def on_confirm(selecciones):
+			hojas = []
+			for clave in selecciones:
+				clave_tuple = tuple(clave)
+				combo = combo_lookup.get(clave_tuple)
+				if not combo:
+					continue
+				horarios = obtener_horarios_profesor(combo['profesor_id'], combo['turno_id'])
+				hoja_nombre = f"{combo['profesor']} - {combo['turno']}"
+				hojas.append({'nombre': hoja_nombre, 'horarios': horarios, 'construir_texto': _texto_horario_profesor})
+			if not hojas:
+				messagebox.showwarning('Sin datos', 'Los profesores seleccionados no poseen horarios registrados.', parent=self)
+				return False
+			ruta = self._solicitar_ruta_exportacion(self._generar_nombre_archivo('profesores'))
+			if not ruta:
+				return False
+			try:
+				destino = exportar_planillas_horario(hojas, ruta)
+			except Exception as exc:
+				messagebox.showerror('Error al exportar', str(exc), parent=self)
+				return False
+			messagebox.showinfo('Exportación completada', f'Se generó el archivo:\n{destino}', parent=self)
+			return True
+
+		self._mostrar_dialogo_seleccion_multiple(
+			'Exportar horarios de profesores',
+			'Seleccione los profesores y turnos a exportar:',
+			items,
+			on_confirm
+		)
+
 	def mostrar_horarios_ciclo(self):
 		self.limpiar_frame()
 		ttk.Label(self.frame_principal, text='Gestión de Horarios por Curso', font=('Arial', 14)).pack(pady=10)
@@ -2899,11 +3375,17 @@ class App(tk.Tk):
 		self.canvas_horario.bind('<Enter>', bind_mousewheel)
 		self.canvas_horario.bind('<Leave>', unbind_mousewheel)
 
-		# Botón para configurar horas por turno en la parte baja (siempre visible)
+		# Botones inferiores
 		frame_bottom_btns = ttk.Frame(self.frame_principal)
-		frame_bottom_btns.pack(pady=6)
-		ttk.Button(frame_bottom_btns, text='Configurar horas por turno', command=self._configurar_horas_por_turno).pack(side='left', padx=5)
-		ttk.Button(frame_bottom_btns, text='Limpiar horarios vacíos', command=self._limpiar_horarios_vacios_ciclo).pack(side='left', padx=5)
+		frame_bottom_btns.pack(pady=6, fill='x')
+		frame_left = ttk.Frame(frame_bottom_btns)
+		frame_left.pack(side='left')
+		frame_right = ttk.Frame(frame_bottom_btns)
+		frame_right.pack(side='right')
+		ttk.Button(frame_left, text='Configurar horas por turno', command=self._configurar_horas_por_turno).pack(side='left', padx=5)
+		ttk.Button(frame_left, text='Limpiar horarios vacíos', command=self._limpiar_horarios_vacios_ciclo).pack(side='left', padx=5)
+		ttk.Button(frame_right, text='Exportar horario visible', command=self._exportar_horario_curso_actual).pack(side='left', padx=5)
+		ttk.Button(frame_right, text='Exportar múltiples cursos', command=self._exportar_multiples_cursos).pack(side='left', padx=5)
 		
 		# Enfocar el primer combobox al entrar
 		self.cb_turno_horario.focus_set()
@@ -3340,11 +3822,17 @@ class App(tk.Tk):
 		self.canvas_horario_prof.bind('<Enter>', bind_mousewheel_prof)
 		self.canvas_horario_prof.bind('<Leave>', unbind_mousewheel_prof)
 
-		# Botón para configurar horas por turno en la parte baja (siempre visible)
+		# Botones inferiores
 		frame_bottom_btns = ttk.Frame(self.frame_principal)
-		frame_bottom_btns.pack(pady=6)
-		ttk.Button(frame_bottom_btns, text='Configurar horas por turno', command=self._configurar_horas_por_turno).pack(side='left', padx=5)
-		ttk.Button(frame_bottom_btns, text='Limpiar horarios vacíos', command=self._limpiar_horarios_vacios_profesor).pack(side='left', padx=5)
+		frame_bottom_btns.pack(pady=6, fill='x')
+		frame_left = ttk.Frame(frame_bottom_btns)
+		frame_left.pack(side='left')
+		frame_right = ttk.Frame(frame_bottom_btns)
+		frame_right.pack(side='right')
+		ttk.Button(frame_left, text='Configurar horas por turno', command=self._configurar_horas_por_turno).pack(side='left', padx=5)
+		ttk.Button(frame_left, text='Limpiar horarios vacíos', command=self._limpiar_horarios_vacios_profesor).pack(side='left', padx=5)
+		ttk.Button(frame_right, text='Exportar horario visible', command=self._exportar_horario_profesor_actual).pack(side='left', padx=5)
+		ttk.Button(frame_right, text='Exportar múltiples profesores', command=self._exportar_multiples_profesores).pack(side='left', padx=5)
 		
 		# Enfocar el primer combobox al entrar
 		self.cb_turno_horario_prof.focus_set()

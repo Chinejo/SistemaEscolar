@@ -186,6 +186,17 @@ El sistema actual (v1.0) utiliza una **arquitectura monolítica** donde todo el 
 
 5. Cierre de Aplicación
    └─ Liberación de recursos
+
+### 2.4 Organización del archivo monolítico (actualización 29/11/2025)
+
+Tras el reordenamiento de noviembre 2025, `SistemaEscolar_v1.py` mantiene su estructura monolítica pero ahora está ordenado por capas consecutivas:
+
+1. **Imports y constantes globales**: incluye todos los módulos estándar, `tkinter` y `xlwt`, además de `DB_DIR`, `DB_NAME` y helpers de rutas para PyInstaller.
+2. **Infraestructura de datos**: funciones como `get_base_path()`, `get_connection()`, el decorador `db_operation`, los helpers de exportación y migración (`_ensure_ciclo_schema`, `_migrar_ciclos_multi_plan`), así como `init_db()` y la invocación de `crear_backup_db()` para ejecutar verificaciones antes de levantar la UI.
+3. **Servicios y reglas de negocio**: integra todos los CRUD, validaciones de horarios, utilitarios de backup y autenticación, manteniendo encabezados claros para cada dominio.
+4. **Interfaz gráfica**: cierra el archivo con `ToolTip`, `aplicar_estilos_ttk`, los helpers de Treeview, la clase `App` y el bloque `if __name__ == "__main__":`, lo que facilita una futura extracción a módulos separados.
+
+Este orden evita imports duplicados, deja evidente en qué sección agregar nueva lógica y garantiza que la base de datos esté lista antes de inicializar cualquier widget.
 ```
 
 ---

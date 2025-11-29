@@ -2,6 +2,15 @@
 
 ## Resumen de Cambios Implementados
 
+### Actualización 29/11/2025 – Reordenamiento del monolito
+- **Motivo:** Facilitar futuras refactorizaciones y localizar rápidamente cada capa (datos, servicios, UI) dentro de `SistemaEscolar_v1.py` sin modificar funcionalidad.
+- **Acciones realizadas:**
+  - Todas las importaciones (stdlib, tkinter y terceros) se movieron al inicio del archivo, antes de cualquier constante o función.
+  - La inicialización de la base de datos (`init_db`) y la verificación/backup automático se mantienen inmediatamente después de los imports, asegurando que cada ejecución valide la base antes de cargar la interfaz.
+  - Las funciones de lógica de negocio (helpers de base de datos, CRUD, validaciones, exportaciones, backup y autenticación) se agruparon y documentaron antes de cualquier código de interfaz.
+  - Toda la capa visual (helpers ttk, `ToolTip`, clase `App` y bloque `__main__`) se movió al final del archivo para dejarla claramente separada.
+- **Impacto:** No hay cambios de comportamiento. Se mejora la mantenibilidad, se evita la duplicación de imports (`hashlib`, `tkinter`) y se deja preparado el terreno para una futura modularización.
+
 ### 1. Menú Principal
 - **Antes**: Menú "Horarios" → "Gestionar Horarios"
 - **Ahora**: Menú "Gestión de horarios" con dos opciones:

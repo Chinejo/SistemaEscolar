@@ -25,6 +25,7 @@ wheels/
 *.egg
 __pycache__
 horarios.db
+version 2.0
 
 # PyInstaller
 *.manifest

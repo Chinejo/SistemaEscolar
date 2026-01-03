@@ -1940,12 +1940,18 @@ class App(tk.Tk):
 		aside = ttk.Frame(main_frame)
 		aside.grid(row=0, column=0, sticky='ns', padx=(0, 10))
 		
-		ttk.Label(aside, text='Acciones', font=('Arial', 11, 'bold')).pack(pady=(0, 10))
+		ttk.Label(aside, text='Acciones', font=('Segoe UI', 11, 'bold')).pack(pady=(0, 10))
 		
 		# Formulario de entrada
 		ttk.Label(aside, text='Nombre:').pack(pady=(5, 2))
-		self.entry_nombre_profesor = ttk.Entry(aside, width=25)
-		self.entry_nombre_profesor.pack(pady=(0, 10))
+		entry_prof_frame = ttk.Frame(aside)
+		entry_prof_frame.pack(pady=(0, 10))
+		self.entry_nombre_profesor = ttk.Entry(entry_prof_frame, width=23)
+		self.entry_nombre_profesor.pack(side='left')
+		def _clear_prof_entry():
+			self.entry_nombre_profesor.delete(0, tk.END)
+			self.entry_nombre_profesor.focus_set()
+		ttk.Button(entry_prof_frame, text='🧹', width=3, command=_clear_prof_entry).pack(side='left', padx=(5, 0))
 		
 		# Botones verticales
 		ttk.Button(aside, text='Agregar', command=self._agregar_profesor, width=22).pack(pady=3)
@@ -1971,14 +1977,20 @@ class App(tk.Tk):
 		
 		ttk.Label(frame_filtro, text='Filtro:').grid(row=0, column=0, padx=5)
 		self.filtro_profesor = tk.StringVar()
-		entry_filtro = ttk.Entry(frame_filtro, textvariable=self.filtro_profesor, width=20)
-		entry_filtro.grid(row=0, column=1, padx=5)
+		entry_filtro_frame = ttk.Frame(frame_filtro)
+		entry_filtro_frame.grid(row=0, column=1, padx=5)
+		entry_filtro = ttk.Entry(entry_filtro_frame, textvariable=self.filtro_profesor, width=18)
+		entry_filtro.pack(side='left')
+		def _clear_filtro_prof():
+			self.filtro_profesor.set('')
+			entry_filtro.focus_set()
+		ttk.Button(entry_filtro_frame, text='🧹', width=3, command=_clear_filtro_prof).pack(side='left', padx=(5, 0))
 		
 		ttk.Label(frame_filtro, text='Turno:').grid(row=0, column=2, padx=5)
 		turnos = obtener_turnos()
 		self.turnos_dict_prof = {t['nombre']: t['id'] for t in turnos}
 		self.cb_turno_profesor = ttk.Combobox(frame_filtro, values=['Todos'] + list(self.turnos_dict_prof.keys()), 
-											 state='readonly', width=18)
+									 state='readonly', width=18)
 		self.cb_turno_profesor.set('Todos')
 		self.cb_turno_profesor.grid(row=0, column=3, padx=5)
 		
@@ -2019,7 +2031,7 @@ class App(tk.Tk):
 		# Aside con acciones
 		aside = ttk.Frame(main_frame)
 		aside.grid(row=0, column=0, sticky='ns', padx=(0, 10))
-		ttk.Label(aside, text='Acciones', font=('Arial', 11, 'bold')).pack(pady=(0, 10))
+		ttk.Label(aside, text='Acciones', font=('Segoe UI', 11, 'bold')).pack(pady=(0, 10))
 		ttk.Button(aside, text='Agregar', command=self._agregar_ciclo, width=22).pack(pady=3)
 		ttk.Button(aside, text='Editar', command=self._editar_ciclo, width=22).pack(pady=3)
 		ttk.Button(aside, text='Eliminar', command=self._eliminar_ciclo_tab, width=22).pack(pady=3)
@@ -2054,7 +2066,7 @@ class App(tk.Tk):
 		aside = ttk.Frame(main_frame)
 		aside.grid(row=0, column=0, sticky='ns', padx=(0, 10))
 		
-		ttk.Label(aside, text='Acciones', font=('Arial', 11, 'bold')).pack(pady=(0, 10))
+		ttk.Label(aside, text='Acciones', font=('Segoe UI', 11, 'bold')).pack(pady=(0, 10))
 		
 		# Botones verticales
 		ttk.Button(aside, text='Agregar', command=self._agregar_division, width=22).pack(pady=3)
@@ -4489,14 +4501,18 @@ class App(tk.Tk):
 		frame_aside.pack(side='left', fill='y', padx=(10, 5), pady=10)
 		frame_aside.pack_propagate(False)
 		
-		ttk.Label(frame_aside, text='Acciones', font=('Arial', 10, 'bold')).pack(pady=(0, 10))
+		ttk.Label(frame_aside, text='Acciones', font=('Segoe UI', 11, 'bold')).pack(pady=(0, 10))
 		
 		# Formulario
 		form = ttk.Frame(frame_aside)
 		form.pack(pady=(0, 10), fill='x')
 		ttk.Label(form, text='Nombre del turno:').grid(row=0, column=0, padx=5, pady=2, sticky='w')
-		self.entry_nombre_turno = ttk.Entry(form, width=25)
+		self.entry_nombre_turno = ttk.Entry(form, width=23)
 		self.entry_nombre_turno.grid(row=1, column=0, padx=5, pady=2, sticky='ew')
+		def _clear_turno_entry():
+			self.entry_nombre_turno.delete(0, tk.END)
+			self.entry_nombre_turno.focus_set()
+		ttk.Button(form, text='🧹', width=3, command=_clear_turno_entry).grid(row=1, column=1, padx=(2, 5), pady=2)
 		form.grid_columnconfigure(0, weight=1)
 		
 		# Botones
@@ -4528,7 +4544,7 @@ class App(tk.Tk):
 		frame_aside.pack(side='left', fill='y', padx=(10, 5), pady=10)
 		frame_aside.pack_propagate(False)
 		
-		ttk.Label(frame_aside, text='Acciones', font=('Arial', 10, 'bold')).pack(pady=(0, 10))
+		ttk.Label(frame_aside, text='Acciones', font=('Segoe UI', 11, 'bold')).pack(pady=(0, 10))
 		
 		# Botones
 		btns = ttk.Frame(frame_aside)
@@ -4582,8 +4598,14 @@ class App(tk.Tk):
 		# Filtro
 		ttk.Label(frame_controles, text='Filtro:').grid(row=0, column=0, padx=5)
 		self.filtro_materia = tk.StringVar()
-		entry_filtro = ttk.Entry(frame_controles, textvariable=self.filtro_materia, width=30)
-		entry_filtro.grid(row=0, column=1, padx=5)
+		entry_filtro_frame = ttk.Frame(frame_controles)
+		entry_filtro_frame.grid(row=0, column=1, padx=5)
+		entry_filtro = ttk.Entry(entry_filtro_frame, textvariable=self.filtro_materia, width=26)
+		entry_filtro.pack(side='left')
+		def _clear_filtro_materia():
+			self.filtro_materia.set('')
+			entry_filtro.focus_set()
+		ttk.Button(entry_filtro_frame, text='🧹', width=3, command=_clear_filtro_materia).pack(side='left', padx=(5, 0))
 
 		# Frame principal con aside y tabla
 		frame_principal = ttk.Frame(parent)
@@ -4594,14 +4616,18 @@ class App(tk.Tk):
 		frame_aside.pack(side='left', fill='y', padx=(10, 5), pady=10)
 		frame_aside.pack_propagate(False)
 		
-		ttk.Label(frame_aside, text='Acciones', font=('Arial', 10, 'bold')).pack(pady=(0, 10))
+		ttk.Label(frame_aside, text='Acciones', font=('Segoe UI', 11, 'bold')).pack(pady=(0, 10))
 		
 		# Formulario de alta
 		form = ttk.Frame(frame_aside)
 		form.pack(pady=(0, 10), fill='x')
 		ttk.Label(form, text='Nueva Materia:').grid(row=0, column=0, padx=5, pady=2, sticky='w')
-		self.entry_nombre_materia_tab = ttk.Entry(form, width=25)
+		self.entry_nombre_materia_tab = ttk.Entry(form, width=23)
 		self.entry_nombre_materia_tab.grid(row=1, column=0, padx=5, pady=2, sticky='ew')
+		def _clear_materia_entry():
+			self.entry_nombre_materia_tab.delete(0, tk.END)
+			self.entry_nombre_materia_tab.focus_set()
+		ttk.Button(form, text='🧹', width=3, command=_clear_materia_entry).grid(row=1, column=1, padx=(2, 5), pady=2)
 		form.grid_columnconfigure(0, weight=1)
 
 		# Botones

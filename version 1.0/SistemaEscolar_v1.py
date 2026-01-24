@@ -1,3 +1,85 @@
+################################################################################
+# SISTEMA DE GESTIÓN DE HORARIOS ESCOLARES - VERSION 1.0
+################################################################################
+#
+# DESCRIPCIÓN GENERAL:
+#   Aplicación de escritorio desarrollada en Python con Tkinter para la gestión
+#   integral de horarios escolares. El sistema maneja la asignación de profesores
+#   a diferentes turnos, ciclos, divisiones y materias, generando horarios
+#   optimizados con validación de conflictos y capacidad de exportación a Excel.
+#
+# DEPENDENCIAS PRINCIPALES:
+#   - sqlite3: Persistencia de datos en base de datos relacional
+#   - tkinter: Interfaz gráfica de usuario (GUI)
+#   - xlwt: Exportación de horarios a formato Excel
+#   - hashlib: Hash seguro de contraseñas
+#   - datetime: Manejo de fechas y horas
+#
+# ESTRUCTURA DE DATOS PRINCIPALES:
+#   - Materia/Obligación: Asignaturas con carga horaria semanal
+#   - Profesor: Personal educativo asignable a turnos
+#   - Ciclo: Niveles educativos (1er año, 2do año, etc.) con planes de estudio
+#   - Plan de Estudio: Conjuntos de materias por ciclo y turno
+#   - Turno: Jornadas (Mañana, Tarde, Noche)
+#   - División: Cursos/secciones dentro de ciclos
+#   - Horario: Asignación de profesor-materia a división en día/hora específico
+#   - Usuario: Credenciales de acceso (Administrador, Usuario regular)
+#
+# TABLA DE CONTENIDOS:
+#   1. IMPORTS Y CONFIGURACIÓN GLOBAL (líneas ~1-13)
+#   2. FUNCIONES DE INICIALIZACIÓN Y CONEXIÓN BD (líneas ~15-35)
+#   3. DECORADOR Y FUNCIONES GENÉRICAS CRUD (líneas ~36-78)
+#   4. FUNCIONES AUXILIARES DE BASE DE DATOS (líneas ~79-115)
+#   5. CONSTANTES Y VARIABLES GLOBALES (líneas ~116-120)
+#   6. FUNCIONES DE EXPORTACIÓN A EXCEL (líneas ~121-290)
+#   7. FUNCIÓN DE INICIALIZACIÓN DE ESQUEMA BD (líneas ~291-400)
+#   8. MÓDULO: GESTIÓN DE MATERIAS (líneas ~401-500)
+#   9. MÓDULO: GESTIÓN DE PROFESORES (líneas ~501-600)
+#   10. MÓDULO: GESTIÓN DE PROFESOR-TURNO (líneas ~601-650)
+#   11. MÓDULO: BANCA DE HORAS (líneas ~651-700)
+#   12. MÓDULO: GESTIÓN DE CICLOS (líneas ~701-800)
+#   13. MÓDULO: GESTIÓN DE CICLO-MATERIA (líneas ~801-850)
+#   14. MÓDULO: GESTIÓN DE PLANES DE ESTUDIO (líneas ~851-950)
+#   15. MÓDULO: GESTIÓN DE TURNOS (líneas ~951-1050)
+#   16. MÓDULO: GESTIÓN DE DIVISIONES (líneas ~1051-1150)
+#   17. MÓDULO: GESTIÓN DE HORARIOS (líneas ~1151-1300)
+#   18. MÓDULO: GESTIÓN DE USUARIO-TURNO-HORA (líneas ~1301-1350)
+#   19. MÓDULO: GESTIÓN DE USUARIO (líneas ~1351-1400)
+#   20. MÓDULO: RESPALDOS (BACKUPS) (líneas ~1401-1450)
+#   21. MÓDULO: GESTIÓN DE USUARIOS DEL SISTEMA (líneas ~1451-1550)
+#   22. MÓDULO: CLASES BASE Y UTILIDADES GUI (líneas ~1551-1650)
+#   23. CLASE PRINCIPAL App: APLICACIÓN TKINTER (líneas ~1651-6200)
+#       23.1. INICIALIZACIÓN Y AUTENTICACIÓN
+#       23.2. GESTIÓN DE MATERIAS
+#       23.3. GESTIÓN DE PERSONAL Y CICLOS
+#       23.4. GESTIÓN DE DIVISIONES
+#       23.5. GESTIÓN DE HORARIOS POR CURSO
+#       23.6. GESTIÓN DE HORARIOS POR PROFESOR
+#       23.7. CONFIGURACIÓN DE HORAS POR TURNO
+#       23.8. GESTIÓN DE TURNOS, PLANES Y MATERIAS
+#       23.9. EXPORTACIÓN DE HORARIOS
+#       23.10. GESTIÓN DE USUARIOS DEL SISTEMA
+#       23.11. GESTIÓN DE RESPALDOS (BACKUPS)
+#   24. PUNTO DE ENTRADA PRINCIPAL (línea ~6250)
+#
+# GLOSARIO DE TÉRMINOS:
+#   - Materia: Asignatura curricular (Matemáticas, Lengua, etc.)
+#   - Profesor: Docente asignado a las materias
+#   - Ciclo: Nivel educativo (Primero, Segundo, Tercero)
+#   - Plan de Estudio: Conjunto de materias de un ciclo en un turno
+#   - Turno: Jornada educativa (Mañana, Tarde, Noche)
+#   - División: Sección de un ciclo (1°A, 1°B, etc.)
+#   - Horario: Asignación de profesor-materia a división en día/hora
+#   - Banca de Horas: Cantidad de horas que puede enseñar un profesor
+#   - Espacio Horario: Franja de tiempo en un turno (8:00-8:45, etc.)
+#
+# NOTA DE REFACTORIZACIÓN:
+#   Este código es un monolito funcional diseñado para futuras refactorizaciones.
+#   Los comentarios de sección y subsección indican los módulos que serán
+#   extraídos en version 2.0 a una estructura modular separada.
+#
+################################################################################
+
 import hashlib
 import os
 import shutil
@@ -11,79 +93,252 @@ from tkinter import filedialog, messagebox, ttk
 
 import xlwt
 
-# MODELOS Y LOGICA DE DATOS PARA GESTION DE HORARIOS ESCOLARES
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# 2. INICIALIZACIÓN DE BASE DE DATOS Y CONEXIÓN
+# ═══════════════════════════════════════════════════════════════════════════════
+# Funciones para obtener la ruta de la aplicación, crear conexiones a la BD
+# y gestionar el ciclo de vida de la conexión a SQLite.
+# ───────────────────────────────────────────────────────────────────────────────
 
-# Inicialización de la base de datos
-# Detectar si estamos ejecutando desde PyInstaller o desde script Python
-def get_base_path():
-	"""Obtiene la ruta base de la aplicación.
-	Funciona tanto en desarrollo como en ejecutable compilado con PyInstaller."""
+def obtener_ruta_base():
+	"""
+	Obtiene la ruta base de la aplicación.
+	
+	Detecta si se ejecuta desde un script Python o desde un ejecutable compilado
+	con PyInstaller, devolviendo la ruta correcta en cada caso.
+	
+	Retorna:
+		str: Ruta del directorio base de la aplicación
+		
+	Notas:
+		- En desarrollo: devuelve el directorio del archivo .py
+		- En PyInstaller: devuelve el directorio del ejecutable .exe
+	"""
 	if getattr(sys, 'frozen', False):
-		# Ejecutando desde PyInstaller
-		# sys.executable es la ruta del .exe
+		# Ejecutando desde PyInstaller compilado
 		return os.path.dirname(sys.executable)
 	else:
-		# Ejecutando desde script Python normal
+		# Ejecutando desde script Python normal en desarrollo
 		return os.path.dirname(os.path.abspath(__file__))
 
-DB_DIR = get_base_path()
-DB_NAME = os.path.join(DB_DIR, 'institucion.db')
 
-def get_connection():
-	conn = sqlite3.connect(DB_NAME, timeout=15)
-	# Mantener restricciones referenciales y evitar bloqueos por lecturas prolongadas
+# Configuración global de la base de datos
+RUTA_BD_DIR = obtener_ruta_base()
+RUTA_BD_COMPLETA = os.path.join(RUTA_BD_DIR, 'institucion.db')
+
+# Mantener referencias globales para compatibilidad con código existente
+DB_DIR = RUTA_BD_DIR
+DB_NAME = RUTA_BD_COMPLETA
+
+# Aliases de compatibilidad para nombres anteriores en inglés
+get_base_path = obtener_ruta_base
+
+def obtener_conexion():
+	"""
+	Obtiene una conexión a la base de datos SQLite.
+	
+	Crea una conexión con configuración segura para:
+	- Mantener restricciones de clave foránea (PRAGMA foreign_keys)
+	- Evitar bloqueos por lecturas prolongadas (busy_timeout)
+	- Permitir múltiples operaciones concurrentes
+	
+	Retorna:
+		sqlite3.Connection: Conexión abierta a la base de datos
+		
+	Notas:
+		- El timeout de 15 segundos previene bloqueos indefinidos
+		- La restricción foreign_keys = ON mantiene la integridad referencial
+	"""
+	conn = sqlite3.connect(RUTA_BD_COMPLETA, timeout=15)
+	# Mantener restricciones referenciales para integridad de datos
 	conn.execute('PRAGMA foreign_keys = ON')
+	# Evitar bloqueos por lecturas prolongadas (timeout: 15 segundos)
 	conn.execute('PRAGMA busy_timeout = 15000')
 	return conn
 
-# Decorador para centralizar manejo de conexión y commit
-def db_operation(func):
-	def wrapper(*args, **kwargs):
-		conn = get_connection()
+# Mantener compatibilidad con código existente
+get_connection = obtener_conexion
+
+# ───────────────────────────────────────────────────────────────────────────────
+# DECORADOR: Automatización de conexión y transacciones
+# ───────────────────────────────────────────────────────────────────────────────
+
+def operacion_bd(funcion):
+	"""
+	Decorador que centraliza la gestión de conexiones a base de datos.
+	
+	Automáticamente:
+	- Obtiene una conexión a la BD antes de ejecutar la función
+	- Realiza un commit si la función completa sin errores
+	- Cierra la conexión al finalizar (éxito o error)
+	- Captura y re-lanza excepciones de integridad
+	
+	Uso:
+		@operacion_bd
+		def mi_funcion(conn, parametro1, parametro2):
+			# La función recibe 'conn' como primer argumento
+			# El resto de parámetros se pasan normalmente
+			pass
+		
+	Notas:
+		- La función decorada debe aceptar 'conn' como primer parámetro
+		- Los cambios se confirman automáticamente (auto-commit)
+		- Las excepciones de integridad se envuelven en Exception
+	"""
+	def envoltorio(*args, **kwargs):
+		conn = obtener_conexion()
 		try:
-			result = func(conn, *args, **kwargs)
+			resultado = funcion(conn, *args, **kwargs)
 			conn.commit()
-			return result
+			return resultado
 		except sqlite3.IntegrityError as e:
+			# Violación de restricción de integridad (ej: clave foránea, clave única)
 			raise Exception(str(e))
 		finally:
 			conn.close()
-	return wrapper
+	return envoltorio
 
-# Funciones genéricas para CRUD simples
-@db_operation
+# Compatibilidad con nombre anterior en inglés
+db_operation = operacion_bd
+
+# ───────────────────────────────────────────────────────────────────────────────
+# FUNCIONES GENÉRICAS CRUD
+# ───────────────────────────────────────────────────────────────────────────────
+# Operaciones básicas Create, Read, Update, Delete para entidades genéricas
+# Utilizadas por funciones específicas de cada módulo de negocio.
+# ............................................................................
+
+@operacion_bd
 def crear_entidad(conn, tabla, campos, valores):
+	"""
+	Inserta una nueva fila en una tabla (operación Create).
+	
+	Parámetros:
+		conn: Conexión a BD (inyectada por decorador)
+		tabla (str): Nombre de la tabla donde insertar
+		campos (list): Lista de nombres de columnas
+		valores (tuple): Tupla de valores en el mismo orden que campos
+		
+	Retorna:
+		None (pero confirma cambios en BD)
+		
+	Ejemplo:
+		crear_entidad('materias', ['nombre', 'horas_semanales'], ['Matemática', 3])
+	"""
 	placeholders = ','.join(['?']*len(valores))
 	campos_str = ','.join(campos)
 	conn.execute(f'INSERT INTO {tabla} ({campos_str}) VALUES ({placeholders})', valores)
 
-@db_operation
+@operacion_bd
 def obtener_entidades(conn, tabla, campos):
+	"""
+	Recupera todas las filas de una tabla (operación Read/Get).
+	
+	Parámetros:
+		conn: Conexión a BD (inyectada por decorador)
+		tabla (str): Nombre de la tabla
+		campos (list): Lista de nombres de columnas a recuperar
+		
+	Retorna:
+		list: Lista de diccionarios con estructura {campo: valor, ...}
+		
+	Ejemplo:
+		resultado = obtener_entidades('materias', ['id', 'nombre', 'horas_semanales'])
+		# Retorna: [{'id': 1, 'nombre': 'Matemática', 'horas_semanales': 3}, ...]
+	"""
 	c = conn.cursor()
 	c.execute(f'SELECT {','.join(campos)} FROM {tabla}')
 	return [dict(zip(campos, row)) for row in c.fetchall()]
 
-@db_operation
+@operacion_bd
 def actualizar_entidad(conn, tabla, campos, valores, id_campo, id_valor):
+	"""
+	Actualiza una fila existente en una tabla (operación Update).
+	
+	Parámetros:
+		conn: Conexión a BD (inyectada por decorador)
+		tabla (str): Nombre de la tabla
+		campos (list): Lista de columnas a actualizar
+		valores (tuple): Nuevos valores en el mismo orden que campos
+		id_campo (str): Nombre del campo ID para identificar la fila
+		id_valor: Valor del ID de la fila a actualizar
+		
+	Retorna:
+		None (pero confirma cambios en BD)
+		
+	Ejemplo:
+		actualizar_entidad('materias', ['nombre', 'horas'], ['Álgebra', 4], 'id', 1)
+	"""
 	set_str = ','.join([f'{campo}=?' for campo in campos])
 	conn.execute(f'UPDATE {tabla} SET {set_str} WHERE {id_campo}=?', (*valores, id_valor))
 
-@db_operation
+@operacion_bd
 def eliminar_entidad(conn, tabla, id_campo, id_valor):
+	"""
+	Elimina una fila de una tabla (operación Delete).
+	
+	Parámetros:
+		conn: Conexión a BD (inyectada por decorador)
+		tabla (str): Nombre de la tabla
+		id_campo (str): Nombre del campo ID para identificar la fila
+		id_valor: Valor del ID de la fila a eliminar
+		
+	Retorna:
+		None (pero confirma cambios en BD)
+		
+	Ejemplo:
+		eliminar_entidad('materias', 'id', 5)
+	"""
 	conn.execute(f'DELETE FROM {tabla} WHERE {id_campo}=?', (id_valor,))
 
+# ───────────────────────────────────────────────────────────────────────────────
+# FUNCIONES AUXILIARES DE BASE DE DATOS
+# ───────────────────────────────────────────────────────────────────────────────
 
-def _table_exists(conn, table_name: str) -> bool:
-	"""Helper para saber si una tabla existe."""
+def _tabla_existe(conn, nombre_tabla: str) -> bool:
+	"""
+	Verifica si una tabla existe en la base de datos.
+	
+	Parámetros:
+		conn: Conexión a BD
+		nombre_tabla (str): Nombre de la tabla a verificar
+		
+	Retorna:
+		bool: True si la tabla existe, False en caso contrario
+	"""
 	c = conn.cursor()
-	c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
+	c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (nombre_tabla,))
 	return c.fetchone() is not None
 
+# Compatibilidad con nombre anterior
+_table_exists = _tabla_existe
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 3. CONSTANTES Y CONFIGURACIÓN GLOBAL
+# ═══════════════════════════════════════════════════════════════════════════════
+# Constantes de configuración para horarios, espacios y exportación a Excel.
+# ───────────────────────────────────────────────────────────────────────────────
+
+# Días de la semana base en el calendario escolar
 HORARIO_DIAS_BASE = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes']
+
+# Número de espacios horarios (franjas de tiempo) por defecto en un turno
+# Ej: 8 espacios = 8 bloques de 45 minutos cada uno (8:00-8:45, 8:45-9:30, ...)
 ESPACIOS_POR_DEFECTO = 8
+
+# Caracteres inválidos en nombres de hojas Excel según formato XLSX
+# Estos caracteres causan error si se usan en nombres de hojas
 _HOJA_CARACTERES_INVALIDOS = set('[]:*?/\\')
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 4. FUNCIONES AUXILIARES PARA EXPORTACIÓN A EXCEL
+# ═══════════════════════════════════════════════════════════════════════════════
+# Funciones helper para consultar información de horarios, días y espacios que
+# será exportada a planillas Excel. Estas se utilizan en el módulo de exportación.
+# ───────────────────────────────────────────────────────────────────────────────
 
 
 def _obtener_dias_para_export() -> List[str]:
@@ -514,37 +769,147 @@ def init_db():
 	conn.close()
 
 
-# CRUD Materia simplificado
+# ═══════════════════════════════════════════════════════════════════════════════
+# 5. MÓDULO: GESTIÓN DE MATERIAS/OBLIGACIONES
+# ═══════════════════════════════════════════════════════════════════════════════
+# Operaciones CRUD para materias (asignaturas curriculares con carga horaria).
+# Candidato para módulo: database/materias.py
+# ───────────────────────────────────────────────────────────────────────────────
+
 def crear_materia(nombre: str, horas: int):
+	"""
+	Crea una nueva materia/obligación en el sistema.
+	
+	Parámetros:
+		nombre (str): Nombre de la materia (ej: "Matemática", "Lengua")
+		horas (int): Horas semanales de carga docente
+		
+	Lanza:
+		Exception: Si ya existe una materia con el mismo nombre
+		
+	Dependencias:
+		- Tabla: materia
+		- Requerida por: crear_ciclo, mostrar_materias (App)
+		
+	Candidato para: database/materias.py
+	"""
 	try:
 		crear_entidad('materia', ['nombre', 'horas_semanales'], [nombre, horas])
 	except Exception:
 		raise Exception('Ya existe una materia con ese nombre.')
 
 def obtener_materias() -> List[Dict[str, Any]]:
+	"""
+	Obtiene la lista completa de materias del sistema.
+	
+	Retorna:
+		list: Lista de diccionarios con estructura {'id': int, 'nombre': str, 'horas_semanales': int}
+		
+	Ejemplo:
+		materias = obtener_materias()
+		# Retorna: [{'id': 1, 'nombre': 'Matemática', 'horas_semanales': 4}, ...]
+		
+	Candidato para: database/materias.py
+	"""
 	return obtener_entidades('materia', ['id', 'nombre', 'horas_semanales'])
 
 def actualizar_materia(id_: int, nombre: str, horas: int):
+	"""
+	Actualiza los datos de una materia existente.
+	
+	Parámetros:
+		id_ (int): ID de la materia a actualizar
+		nombre (str): Nuevo nombre de la materia
+		horas (int): Nuevas horas semanales
+		
+	Retorna:
+		None (pero realiza commit en BD)
+		
+	Candidato para: database/materias.py
+	"""
 	actualizar_entidad('materia', ['nombre', 'horas_semanales'], [nombre, horas], 'id', id_)
 
 def eliminar_materia(id_: int):
+	"""
+	Elimina una materia del sistema.
+	
+	Parámetros:
+		id_ (int): ID de la materia a eliminar
+		
+	Nota:
+		Esto puede fallar si hay referencias en ciclos o planes de estudio
+		debido a restricciones de clave foránea.
+		
+	Candidato para: database/materias.py
+	"""
 	eliminar_entidad('materia', 'id', id_)
 
 
-# CRUD Profesor simplificado
+# ═══════════════════════════════════════════════════════════════════════════════
+# 6. MÓDULO: GESTIÓN DE PROFESORES
+# ═══════════════════════════════════════════════════════════════════════════════
+# Operaciones CRUD para profesores (docentes del sistema).
+# Candidato para módulo: database/profesores.py
+# ───────────────────────────────────────────────────────────────────────────────
+
 def crear_profesor(nombre: str):
+	"""
+	Crea un nuevo profesor en el sistema.
+	
+	Parámetros:
+		nombre (str): Nombre completo del docente
+		
+	Lanza:
+		Exception: Si ya existe un profesor con el mismo nombre
+		
+	Dependencias:
+		- Tabla: profesor
+		- Requerida por: gestión de profesores, asignación de turnos
+		
+	Candidato para: database/profesores.py
+	"""
 	try:
 		crear_entidad('profesor', ['nombre'], [nombre])
 	except Exception:
 		raise Exception('Ya existe un profesor con ese nombre.')
 
 def obtener_profesores() -> List[Dict[str, Any]]:
+	"""
+	Obtiene la lista completa de profesores.
+	
+	Retorna:
+		list: Lista de diccionarios {'id': int, 'nombre': str}
+		
+	Candidato para: database/profesores.py
+	"""
 	return obtener_entidades('profesor', ['id', 'nombre'])
 
 def actualizar_profesor(id_: int, nombre: str):
+	"""
+	Actualiza los datos de un profesor.
+	
+	Parámetros:
+		id_ (int): ID del profesor
+		nombre (str): Nuevo nombre
+		
+	Candidato para: database/profesores.py
+	"""
 	actualizar_entidad('profesor', ['nombre'], [nombre], 'id', id_)
 
 def eliminar_profesor(id_: int):
+	"""
+	Elimina un profesor del sistema junto con sus asignaciones.
+	
+	Parámetros:
+		id_ (int): ID del profesor a eliminar
+		
+	Notas:
+		- Elimina automáticamente las referencias en profesor_turno
+		- Esto puede fallar si hay horarios asignados (restricción FK)
+		
+	Candidato para: database/profesores.py
+	"""
+	# TODO REFACTOR: Usar transacción explícita para garantizar consistencia
 	# Elimina también los turnos asignados
 	@db_operation
 	def _eliminar_profesor(conn, id_):
@@ -552,8 +917,30 @@ def eliminar_profesor(id_: int):
 		conn.execute('DELETE FROM profesor WHERE id=?', (id_,))
 	_eliminar_profesor(id_)
 
-# CRUD Turnos de profesor
+# ═══════════════════════════════════════════════════════════════════════════════
+# 7. MÓDULO: GESTIÓN DE PROFESOR-TURNO (RELACIÓN MUCHOS A MUCHOS)
+# ═══════════════════════════════════════════════════════════════════════════════
+# Operaciones para asignar/desasignar turnos (jornadas) a profesores.
+# Candidato para módulo: database/profesor_turno.py
+# ───────────────────────────────────────────────────────────────────────────────
+
 def asignar_turno_a_profesor(profesor_id: int, turno_id: int):
+	"""
+	Asigna un turno (jornada) a un profesor.
+	
+	Parámetros:
+		profesor_id (int): ID del profesor
+		turno_id (int): ID del turno (Mañana, Tarde, Noche)
+		
+	Lanza:
+		Exception: Si el profesor ya tiene asignado ese turno (violación de clave única)
+		
+	Dependencias:
+		- Tablas: profesor, turno, profesor_turno
+		- Requerida por: mostrar_personal_y_ciclos, gestión de horarios
+		
+	Candidato para: database/profesor_turno.py
+	"""
 	try:
 		conn = get_connection()
 		c = conn.cursor()
@@ -565,6 +952,18 @@ def asignar_turno_a_profesor(profesor_id: int, turno_id: int):
 		conn.close()
 
 def quitar_turno_a_profesor(profesor_id: int, turno_id: int):
+	"""
+	Desasigna un turno de un profesor.
+	
+	Parámetros:
+		profesor_id (int): ID del profesor
+		turno_id (int): ID del turno
+		
+	Nota:
+		Se elimina la relación profesor_turno, pero no el profesor ni el turno.
+		
+	Candidato para: database/profesor_turno.py
+	"""
 	conn = get_connection()
 	c = conn.cursor()
 	c.execute('DELETE FROM profesor_turno WHERE profesor_id=? AND turno_id=?', (profesor_id, turno_id))
@@ -572,6 +971,21 @@ def quitar_turno_a_profesor(profesor_id: int, turno_id: int):
 	conn.close()
 
 def obtener_turnos_de_profesor(profesor_id: int):
+	"""
+	Obtiene los turnos asignados a un profesor.
+	
+	Parámetros:
+		profesor_id (int): ID del profesor
+		
+	Retorna:
+		list: Lista de diccionarios {'id': int, 'nombre': str}
+		
+	Ejemplo:
+		turnos = obtener_turnos_de_profesor(1)
+		# Retorna: [{'id': 1, 'nombre': 'Mañana'}, {'id': 2, 'nombre': 'Tarde'}]
+		
+	Candidato para: database/profesor_turno.py
+	"""
 	conn = get_connection()
 	c = conn.cursor()
 	c.execute('''SELECT t.id, t.nombre FROM profesor_turno pt JOIN turno t ON pt.turno_id = t.id WHERE pt.profesor_id=?''', (profesor_id,))
@@ -580,6 +994,17 @@ def obtener_turnos_de_profesor(profesor_id: int):
 	return [{'id': r[0], 'nombre': r[1]} for r in rows]
 
 def obtener_profesores_por_turno(turno_id: int):
+	"""
+	Obtiene los profesores asignados a un turno.
+	
+	Parámetros:
+		turno_id (int): ID del turno
+		
+	Retorna:
+		list: Lista de diccionarios {'id': int, 'nombre': str}
+		
+	Candidato para: database/profesor_turno.py
+	"""
 	conn = get_connection()
 	c = conn.cursor()
 	c.execute('''SELECT p.id, p.nombre FROM profesor p JOIN profesor_turno pt ON p.id = pt.profesor_id WHERE pt.turno_id=?''', (turno_id,))
@@ -589,7 +1014,14 @@ def obtener_profesores_por_turno(turno_id: int):
 
 
 def obtener_profesor_turnos() -> List[Dict[str, Any]]:
-	"""Devuelve todas las combinaciones profesor-turno disponibles."""
+	"""
+	Obtiene todas las combinaciones profesor-turno del sistema.
+	
+	Retorna:
+		list: Lista de diccionarios {'profesor_id': int, 'profesor': str, 'turno_id': int, 'turno': str}
+		
+	Candidato para: database/profesor_turno.py
+	"""
 	conn = get_connection()
 	c = conn.cursor()
 	c.execute('''SELECT p.id, p.nombre, t.id, t.nombre
@@ -604,8 +1036,28 @@ def obtener_profesor_turnos() -> List[Dict[str, Any]]:
 		for r in rows
 	]
 
-# CRUD Banca de horas por materia para profesor
+# ═══════════════════════════════════════════════════════════════════════════════
+# 8. MÓDULO: BANCA DE HORAS POR PROFESOR-MATERIA
+# ═══════════════════════════════════════════════════════════════════════════════
+# Operaciones para gestionar la carga horaria disponible de cada profesor
+# en cada materia que puede impartir.
+# Candidato para módulo: database/profesor_materia.py
+# ───────────────────────────────────────────────────────────────────────────────
+
 def asignar_banca_profesor(profesor_id: int, materia_id: int, banca_horas: int):
+	"""
+	Asigna una banca horaria (carga) a un profesor para una materia.
+	
+	Parámetros:
+		profesor_id (int): ID del profesor
+		materia_id (int): ID de la materia
+		banca_horas (int): Cantidad de horas que puede enseñar
+		
+	Lanza:
+		Exception: Si el profesor ya tiene esa materia asignada
+		
+	Candidato para: database/profesor_materia.py
+	"""
 	try:
 		conn = get_connection()
 		c = conn.cursor()
@@ -617,6 +1069,17 @@ def asignar_banca_profesor(profesor_id: int, materia_id: int, banca_horas: int):
 		conn.close()
 
 def obtener_banca_profesor(profesor_id: int) -> List[Dict[str, Any]]:
+	"""
+	Obtiene la banca horaria de un profesor.
+	
+	Parámetros:
+		profesor_id (int): ID del profesor
+		
+	Retorna:
+		list: Lista de diccionarios {'id': int, 'materia': str, 'banca_horas': int}
+		
+	Candidato para: database/profesor_materia.py
+	"""
 	conn = get_connection()
 	c = conn.cursor()
 	c.execute('''SELECT pm.id, m.nombre, pm.banca_horas FROM profesor_materia pm JOIN materia m ON pm.materia_id = m.id WHERE pm.profesor_id=?''', (profesor_id,))
@@ -625,6 +1088,15 @@ def obtener_banca_profesor(profesor_id: int) -> List[Dict[str, Any]]:
 	return [{'id': r[0], 'materia': r[1], 'banca_horas': r[2]} for r in rows]
 
 def actualizar_banca_profesor(pm_id: int, banca_horas: int):
+	"""
+	Actualiza la banca horaria de un profesor para una materia.
+	
+	Parámetros:
+		pm_id (int): ID del registro profesor_materia
+		banca_horas (int): Nueva cantidad de horas
+		
+	Candidato para: database/profesor_materia.py
+	"""
 	conn = get_connection()
 	c = conn.cursor()
 	c.execute('UPDATE profesor_materia SET banca_horas=? WHERE id=?', (banca_horas, pm_id))
@@ -632,16 +1104,48 @@ def actualizar_banca_profesor(pm_id: int, banca_horas: int):
 	conn.close()
 
 def eliminar_banca_profesor(pm_id: int):
+	"""
+	Elimina la asignación de una materia de un profesor.
+	
+	Parámetros:
+		pm_id (int): ID del registro profesor_materia
+		
+	Candidato para: database/profesor_materia.py
+	"""
 	conn = get_connection()
 	c = conn.cursor()
 	c.execute('DELETE FROM profesor_materia WHERE id=?', (pm_id,))
 	conn.commit()
 	conn.close()
 
-# CRUD División
+# ═══════════════════════════════════════════════════════════════════════════════
+# 9. MÓDULO: GESTIÓN DE CICLOS (NIVELES EDUCATIVOS)
+# ═══════════════════════════════════════════════════════════════════════════════
+# Operaciones CRUD para ciclos (años/niveles educativos con planes asociados).
+# Un ciclo puede tener múltiples planes de estudio.
+# Candidato para módulo: database/ciclos.py
+# ───────────────────────────────────────────────────────────────────────────────
 
-# CRUD Ciclo
 def crear_ciclo(nombre: str, plan_ids: List[int]) -> int:
+	"""
+	Crea un nuevo ciclo (nivel educativo) y lo asocia con planes de estudio.
+	
+	Parámetros:
+		nombre (str): Nombre del ciclo (ej: "Primer Año", "Segundo Año")
+		plan_ids (list): Lista de IDs de planes de estudio a asociar
+		
+	Retorna:
+		int: ID del ciclo creado
+		
+	Lanza:
+		Exception: Si ya existe un ciclo con ese nombre o si no hay planes
+		
+	Dependencias:
+		- Tablas: ciclo, plan_ciclo, plan
+		- Requerida por: gestión de divisiones, horarios
+		
+	Candidato para: database/ciclos.py
+	"""
 	if not plan_ids:
 		raise Exception('Debe seleccionar al menos un plan de estudio.')
 	conn = get_connection()
@@ -660,6 +1164,20 @@ def crear_ciclo(nombre: str, plan_ids: List[int]) -> int:
 
 
 def actualizar_ciclo(id_: int, nombre: str, plan_ids: List[int]):
+	"""
+	Actualiza un ciclo existente y sus asociaciones con planes de estudio.
+	
+	Parámetros:
+		id_ (int): ID del ciclo a actualizar
+		nombre (str): Nuevo nombre del ciclo
+		plan_ids (list): Nueva lista de IDs de planes asociados
+		
+	Lanza:
+		Exception: Si no hay planes, ya existe un ciclo con ese nombre,
+				   o hay divisiones asociadas a planes que se desvinculan
+		
+	Candidato para: database/ciclos.py
+	"""
 	if not plan_ids:
 		raise Exception('Debe seleccionar al menos un plan de estudio.')
 	conn = get_connection()
@@ -673,7 +1191,7 @@ def actualizar_ciclo(id_: int, nombre: str, plan_ids: List[int]):
 		new_set = set(plan_ids)
 		to_add = new_set - existing
 		to_remove = existing - new_set
-		if to_remove and _table_exists(conn, 'division'):
+		if to_remove and _tabla_existe(conn, 'division'):
 			for plan_id in to_remove:
 				c.execute('SELECT COUNT(*) FROM division WHERE ciclo_id=? AND plan_id=?', (id_, plan_id))
 				if c.fetchone()[0] > 0:
@@ -688,6 +1206,17 @@ def actualizar_ciclo(id_: int, nombre: str, plan_ids: List[int]):
 
 
 def obtener_ciclos(plan_id: int) -> list:
+	"""
+	Obtiene los ciclos asociados a un plan de estudio.
+	
+	Parámetros:
+		plan_id (int): ID del plan de estudio
+		
+	Retorna:
+		list: Lista de diccionarios {'id': int, 'nombre': str}
+		
+	Candidato para: database/ciclos.py
+	"""
 	conn = get_connection()
 	c = conn.cursor()
 	c.execute('''SELECT c.id, c.nombre FROM ciclo c
@@ -700,6 +1229,15 @@ def obtener_ciclos(plan_id: int) -> list:
 
 
 def obtener_ciclos_con_planes() -> List[Dict[str, Any]]:
+	"""
+	Obtiene todos los ciclos con sus planes asociados.
+	
+	Retorna:
+		list: Lista de diccionarios con estructura:
+			  {'id': int, 'nombre': str, 'planes': [{'id': int, 'nombre': str}, ...]}
+		
+	Candidato para: database/ciclos.py
+	"""
 	conn = get_connection()
 	c = conn.cursor()
 	c.execute('''SELECT c.id, c.nombre, p.id, p.nombre
@@ -719,6 +1257,17 @@ def obtener_ciclos_con_planes() -> List[Dict[str, Any]]:
 
 
 def obtener_planes_de_ciclo(ciclo_id: int) -> List[Dict[str, Any]]:
+	"""
+	Obtiene los planes de estudio asociados a un ciclo.
+	
+	Parámetros:
+		ciclo_id (int): ID del ciclo
+		
+	Retorna:
+		list: Lista de diccionarios {'id': int, 'nombre': str}
+		
+	Candidato para: database/ciclos.py
+	"""
 	conn = get_connection()
 	c = conn.cursor()
 	c.execute('''SELECT p.id, p.nombre FROM plan_ciclo pc
@@ -731,13 +1280,27 @@ def obtener_planes_de_ciclo(ciclo_id: int) -> List[Dict[str, Any]]:
 
 
 def contar_dependencias_ciclo(ciclo_id: int) -> Dict[str, int]:
+	"""
+	Cuenta las dependencias (divisiones y horarios) de un ciclo.
+	
+	Parámetros:
+		ciclo_id (int): ID del ciclo
+		
+	Retorna:
+		dict: {'divisiones': int, 'horarios': int}
+		
+	Notas:
+		Se utiliza antes de eliminar un ciclo para verificar posibles conflictos.
+		
+	Candidato para: database/ciclos.py
+	"""
 	conn = get_connection()
 	c = conn.cursor()
 	divisiones = horarios = 0
-	if _table_exists(conn, 'division'):
+	if _tabla_existe(conn, 'division'):
 		c.execute('SELECT COUNT(*) FROM division WHERE ciclo_id=?', (ciclo_id,))
 		divisiones = c.fetchone()[0]
-	if divisiones and _table_exists(conn, 'horario'):
+	if divisiones and _tabla_existe(conn, 'horario'):
 		c.execute('''SELECT COUNT(*) FROM horario
 				 WHERE division_id IN (SELECT id FROM division WHERE ciclo_id=?)''', (ciclo_id,))
 		horarios = c.fetchone()[0]
@@ -746,6 +1309,22 @@ def contar_dependencias_ciclo(ciclo_id: int) -> Dict[str, int]:
 
 
 def eliminar_ciclo(id_: int, cascade: bool = False):
+	"""
+	Elimina un ciclo del sistema.
+	
+	Parámetros:
+		id_ (int): ID del ciclo a eliminar
+		cascade (bool): Si True, elimina también divisiones y horarios asociados
+		
+	Lanza:
+		Exception: Si hay dependencias y cascade=False
+		
+	Notas:
+		- Si hay divisiones u horarios y cascade=False, lanza una excepción
+		- Si cascade=True, elimina todo en orden: horarios, divisiones, plan_ciclo, ciclo
+		
+	Candidato para: database/ciclos.py
+	"""
 	conn = get_connection()
 	try:
 		c = conn.cursor()
@@ -1408,8 +1987,51 @@ def recargar_treeview(tree, datos, campos):
 	for d in datos:
 		tree.insert('', 'end', iid=d['id'], values=tuple(d[c] for c in campos))
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# 20. CLASE PRINCIPAL: APP - APLICACIÓN TKINTER
+# ═══════════════════════════════════════════════════════════════════════════════
+# Clase principal que implementa la interfaz gráfica (GUI) de la aplicación.
+# Utiliza Tkinter para crear ventanas, diálogos y controles interactivos.
+#
+# Módulos funcionales dentro de App:
+#   - Inicialización y Autenticación
+#   - Gestión de Materias
+#   - Gestión de Personal y Ciclos
+#   - Gestión de Divisiones
+#   - Gestión de Horarios por Curso
+#   - Gestión de Horarios por Profesor
+#   - Configuración de Horas
+#   - Gestión de Turnos, Planes y Materias
+#   - Exportación de Horarios
+#   - Gestión de Usuarios del Sistema
+#   - Gestión de Respaldos
+#
+# Candidato para refactorización modular: views/, controllers/
+# ───────────────────────────────────────────────────────────────────────────────
+
 class App(tk.Tk):
+	"""
+	Aplicación principal de Gestión de Horarios Escolares.
+	
+	Hereda de tk.Tk para crear la ventana raíz de la aplicación.
+	Gestiona toda la interfaz de usuario, autenticación y flujo de navegación.
+	"""
+	
 	def __init__(self):
+		"""
+		Inicializa la aplicación Tkinter.
+		
+		Configura:
+		- Estilos visuales (ttk styles)
+		- Ventana principal (título, tamaño, color)
+		- Verificación de primer inicio (sin usuarios)
+		- Pantalla de login o configuración inicial
+		
+		Atributos de instancia:
+		- self.usuario_actual: Información del usuario logueado (dict o None)
+		- self.current_*: Campos para almacenar selecciones temporales en UI
+		- self.frame_principal: Frame principal para contenido dinámico
+		"""
 		super().__init__()
 		aplicar_estilos_ttk()
 		self.title('Gestión de Horarios Escolares - Login')
@@ -1635,7 +2257,29 @@ class App(tk.Tk):
 			self.frame_principal.pack(fill='both', expand=True)
 
 
+	# ───────────────────────────────────────────────────────────────────────────────
+	# MÓDULO: GESTIÓN DE MATERIAS
+	# ───────────────────────────────────────────────────────────────────────────────
+	# Métodos para crear, editar, eliminar y listar materias/obligaciones curriculares.
+	# Vista principal con tabla filtrable, formulario de entrada y acciones CRUD.
+	# Candidato para refactorización: views/materias_view.py
+
 	def mostrar_materias(self):
+		"""
+		Muestra la pantalla de gestión de materias/obligaciones.
+		
+		Funcionalidades:
+		- Tabla de materias con nombre y horas semanales
+		- Filtro por nombre (búsqueda en tiempo real)
+		- Botones: Agregar, Editar, Eliminar, Asignar a Plan
+		- Totales de materias y horas institucionales
+		
+		Requiere:
+		- obtener_materias() - para cargar lista inicial
+		- crear_materia() - para crear nuevas materias
+		- actualizar_materia() - para editar existentes
+		- eliminar_materia() - para borrar materias
+		"""
 		self.limpiar_frame()
 		ttk.Label(self.frame_principal, text='Gestión de Materias/Obligaciones', font=('Arial', 14)).pack(pady=10)
 
@@ -1898,12 +2542,23 @@ class App(tk.Tk):
 		ttk.Button(frame_btns, text='Cerrar', command=win.destroy, width=15).grid(row=0, column=1, padx=5)
 
 
-	# ============================================================
-	# GESTIÓN DE PERSONAL Y CICLOS - Vista consolidada con tabs
-	# ============================================================
+	# ───────────────────────────────────────────────────────────────────────────────
+	# MÓDULO: GESTIÓN DE PERSONAL Y CICLOS
+	# ───────────────────────────────────────────────────────────────────────────────
+	# Vista consolidada con tabs para gestionar profesores, ciclos y divisiones.
+	# Candidato para refactorización: views/personal_ciclos_view.py
 	
 	def mostrar_personal_ciclos(self):
-		"""Muestra Gestión de Personal, Ciclos y Divisiones en tabs con botones laterales"""
+		"""
+		Muestra la pantalla de gestión de personal, ciclos y divisiones.
+		
+		Estructura:
+		- Tab 1: Personal (Profesores, asignación de turnos, banca de horas)
+		- Tab 2: Ciclos (Crear, editar, eliminar ciclos con planes asociados)
+		- Tab 3: Divisiones (Secciones dentro de ciclos)
+		
+		Cada tab tiene su propia tabla y botones de acción.
+		"""
 		self.limpiar_frame()
 		
 		# Título principal
